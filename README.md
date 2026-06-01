@@ -1,8 +1,19 @@
-# MIDI Spatial Drawing
+# Rainbow Body — MIDI Meditation Visualizer
 
-Play a MIDI controller (Akai, OP-1, keyboard) and the notes draw evolving
-geometric shapes in 3D space — color, depth, trails, drift. Built for a kid to
-"paint with sound."
+Play a MIDI controller (Akai, OP-1, keyboard) and the notes draw an evolving
+rainbow-body visual: a luminous seated figure at the center, geometry emanating
+and spiralling outward, note-name colors, light shaped by how you press and which
+octave, occasional OM/AH/HUNG seed syllables and connecting strings, and a
+rainbow arch when you hold 3+ keys.
+
+## Use it (hosted — any laptop, no install)
+
+Open **https://danieljahearnlmft.github.io/rainbow-body/** in **Chrome**, click
+**Allow** when it asks for MIDI, plug in your controller (Akai / OP-1) by USB,
+and play. Works alongside Ableton or Logic — they make the sound, this draws the
+picture, both reading the same controller at once.
+
+## Run locally instead
 
 ## Quick start
 
