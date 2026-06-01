@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rainbow Body — MIDI Meditation Visualizer</title>
+<style>
+  @font-face { font-family: 'Noto Serif Tibetan'; src: url('./vendor/fonts/tibetan.woff2') format('woff2'); font-display: swap; }
+  html, body { margin: 0; height: 100%; background: #04050a; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
+  #c { display: block; width: 100vw; height: 100vh; }
+  #ui {
+    position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 10;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: center;
+    color: #cdd3e0; font-size: 12px;
+    background: rgba(10,12,20,0.5); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+    padding: 8px 16px; max-width: 94vw; user-select: none; transition: opacity .5s;
+  }
+  #ui.hidden { opacity: 0; pointer-events: none; }
+  #ui .grp { display: flex; align-items: center; gap: 7px; }
+  #ui .ttl { font-weight: 600; letter-spacing: .04em; color: #fff; }
+  #ui select { background: #11131c; color: #cdd3e0; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
+  #ui label { display: flex; align-items: center; gap: 6px; color: #aab1c2; white-space: nowrap; }
+  #ui input[type=range] { width: 74px; }
+  #ui .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+  #ui .dot.live { background: #42e695; box-shadow: 0 0 8px #42e695; }
+  #ui button { background: #1a1d2b; color: #cdd3e0; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+  #ui button:hover { background: #222637; }
+  #tag { position: fixed; left: 14px; bottom: 12px; z-index: 9; color: #4a5366; font-size: 11px; transition: opacity .5s; }
+  #tag.hidden { opacity: 0; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="ui">
+  <span class="grp"><span class="ttl">◇ RAINBOW BODY</span><span class="dot" id="dot"></span><span id="status" class="muted"></span></span>
+  <span class="grp"><label>Input <select id="inputs"></select></label></span>
+  <span class="grp"><label>Color
+    <select id="palette">
+      <option value="notes">Note colors</option>
+      <option value="rainbow">Rainbow</option>
+      <option value="vajra">Vajra</option>
+      <option value="elements">Elements</option>
+      <option value="aurora">Aurora</option>
+    </select></label></span>
+  <span class="grp"><label>Glow <input id="glow" type="range" min="0" max="100" value="42"></label></span>
+  <span class="grp"><label>Persist <input id="persist" type="range" min="4" max="60" value="26"></label></span>
+  <span class="grp"><label>Drift <input id="drift" type="range" min="0" max="100" value="30"></label></span>
+  <span class="grp"><label>Swirl <input id="swirl" type="range" min="0" max="100" value="45"></label></span>
+  <span class="grp"><label>Strings <input id="strings" type="range" min="0" max="100" value="30"></label></span>
+  <span class="grp"><label>Syllables <input id="syl" type="range" min="0" max="100" value="14"></label></span>
+  <span class="grp"><button id="clear">Clear</button></span>
+</div>
+<div id="tag">drag to orbit · scroll to zoom · <b>H</b> pin menu · <b>F</b> fullscreen · <b>C</b> clear · hold 3+ keys → rainbow</div>
+
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/jsm/" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+// preload the Tibetan font so seed-syllable canvas textures render correctly
+if (document.fonts && document.fonts.load) document.fonts.load('40px "Noto Serif Tibetan"');
+
+// ======================================================================
+// CORRESPONDENCE ENGINE
+// ======================================================================
+const NATURALS = { 0:0xffffff, 2:0x2f6bff, 4:0xff3b30, 5:0x3ad16a, 7:0xffe14d, 9:0xd4af37, 11:0x8b5a2b };
+const NOTE_COLORS = (() => {
+  const arr = new Array(12);
+  for (const k in NATURALS) arr[+k] = new THREE.Color(NATURALS[k]);
+  const lo = [0,2,4,5,7,9,11];
+  for (let pc = 0; pc < 12; pc++) {
+    if (arr[pc]) continue;
+    const below = lo.filter(n => n < pc).pop(), above = lo.find(n => n > pc);
+    arr[pc] = arr[below].clone().lerp(arr[above], 0.5);
+  }
+  return arr;
+})();
+const SEEDS = [
+  { name:'OM', glyph:'ༀ', color:0xff3b30 },
+  { name:'AH', glyph:'ཨཱཿ', color:0xffffff },
+  { name:'HUNG', glyph:'ཧཱུྃ', color:0x2f6bff },
+];
+const SPECTRA = {
+  rainbow:  t => new THREE.Color().setHSL(0.0 + t*0.82, 0.7, 0.6),
+  aurora:   t => new THREE.Color().setHSL(0.33 + t*0.33, 0.65, 0.6),
+  vajra:    t => new THREE.Color([0xff3b30,0xffffff,0x2f6bff][Math.min(2,Math.floor(t*3))]),
+  elements: t => new THREE.Color([0xf2c14e,0xeaf4ff,0xff4d3d,0x4bd47a,0x7fb2ff][Math.min(4,Math.floor(t*5))]),
+};
+const LO = 36, HI = 96;
+function colorForNote(note) {
+  if (params.palette === 'notes') return NOTE_COLORS[((note%12)+12)%12].clone();
+  return (SPECTRA[params.palette] || SPECTRA.rainbow)(THREE.MathUtils.clamp((note-LO)/(HI-LO),0,1));
+}
+const GEOMS = [
+  () => new THREE.IcosahedronGeometry(1,0), () => new THREE.OctahedronGeometry(1,0),
+  () => new THREE.TetrahedronGeometry(1,0), () => new THREE.BoxGeometry(1.4,1.4,1.4),
+  () => new THREE.DodecahedronGeometry(1,0), () => new THREE.TorusGeometry(0.9,0.32,8,20),
+  () => new THREE.ConeGeometry(1,1.8,6), () => new THREE.IcosahedronGeometry(1,1),
+  () => new THREE.OctahedronGeometry(1.1,0), () => new THREE.TorusKnotGeometry(0.7,0.22,64,8),
+  () => new THREE.BoxGeometry(1,2.2,1), () => new THREE.DodecahedronGeometry(1.1,0),
+];
+const CENTER = new THREE.Vector3(0, 2, 0);
+function noteToTarget(note, vel) {
+  const pc = note%12, oct = Math.floor(note/12);
+  const az = (pc/12)*Math.PI*2 + (Math.random()-0.5)*0.35;
+  const el = ((oct-5)/3.2)*(Math.PI*0.46) + (Math.random()-0.5)*0.30;
+  const r = 15 + vel*7 + Math.random()*3;
+  return new THREE.Vector3(Math.cos(az)*Math.cos(el)*r, Math.sin(el)*r, Math.sin(az)*Math.cos(el)*r).add(CENTER);
+}
+
+// ======================================================================
+// SCENE
+// ======================================================================
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.85;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x04050a, 0.008);
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 2000);
+camera.position.set(0, 6, 52);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.06;
+controls.target.copy(CENTER); controls.autoRotate = true; controls.autoRotateSpeed = 0.3;
+
+scene.add(new THREE.AmbientLight(0x404060, 1.1));
+const keyLight = new THREE.PointLight(0xffffff, 70, 400); keyLight.position.set(20,30,20); scene.add(keyLight);
+const coreLight = new THREE.PointLight(0xffeede, 0, 140); coreLight.position.copy(CENTER); scene.add(coreLight);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.55, 0.30); // strength, radius, threshold
+composer.addPass(bloom);
+
+const grid = new THREE.GridHelper(180, 54, 0x121826, 0x090d15);
+grid.material.transparent = true; grid.material.opacity = 0.25; grid.position.y = -16; scene.add(grid);
+
+function texFromDraw(draw, S = 512) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  draw(cv.getContext('2d'), S);
+  const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; return tx;
+}
+
+// ---- Soft pastel rainbow SPIRAL backdrop (the nautilus) ----
+const spiral = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: texFromDraw((ctx, S) => {
+    const c = S/2;
+    for (let r = c; r > 2; r -= 2) {
+      for (let a = 0; a < 360; a += 2) {
+        const ang = a*Math.PI/180;
+        const hue = (((a/360) + (r/c)*1.4) % 1 + 1) % 1;     // hue shifts with radius -> spiral arms
+        ctx.fillStyle = `hsla(${hue*360},62%,76%,0.5)`;
+        ctx.fillRect(c + Math.cos(ang)*r - 1.5, c + Math.sin(ang)*r - 1.5, 3, 3);
+      }
+    }
+    const g = ctx.createRadialGradient(c, c, 0, c, c, c);    // fade center (figure) + edges
+    g.addColorStop(0, 'rgba(4,5,10,0.85)'); g.addColorStop(0.18, 'rgba(4,5,10,0.0)');
+    g.addColorStop(0.7, 'rgba(4,5,10,0.0)'); g.addColorStop(1, 'rgba(4,5,10,1)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
+  }, 768),
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55,
+}));
+spiral.scale.setScalar(150); spiral.position.copy(CENTER); spiral.position.z = -28; scene.add(spiral);
+
+// ---- Lotus + aura + luminous seated figure ----
+const aura = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: texFromDraw((ctx, S) => {
+    const c = S/2, g = ctx.createRadialGradient(c, c, 0, c, c, c);
+    g.addColorStop(0, 'rgba(255,248,232,0.75)'); g.addColorStop(0.4, 'rgba(255,236,200,0.32)'); g.addColorStop(1, 'rgba(255,236,200,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
+  }),
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+}));
+aura.scale.setScalar(9); aura.position.copy(CENTER); scene.add(aura);
+
+const figure = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: texFromDraw((ctx, S) => {
+    const cx = S/2;
+    // lotus pad
+    ctx.fillStyle = 'rgba(255,210,230,0.55)';
+    for (let i = 0; i < 9; i++) {
+      const a = (i/9)*Math.PI*2, px = cx + Math.cos(a)*S*0.22, py = S*0.80 + Math.sin(a)*S*0.05;
+      ctx.beginPath(); ctx.ellipse(px, py, S*0.05, S*0.085, a, 0, Math.PI*2); ctx.fill();
+    }
+    // luminous body
+    ctx.fillStyle = 'rgba(255,250,238,0.95)';
+    ctx.shadowColor = 'rgba(255,240,210,0.9)'; ctx.shadowBlur = 22;
+    ctx.beginPath(); ctx.ellipse(cx, S*0.72, S*0.27, S*0.095, 0, 0, Math.PI*2); ctx.fill();     // crossed legs
+    ctx.beginPath();                                                                            // torso
+    ctx.moveTo(cx - S*0.13, S*0.69);
+    ctx.quadraticCurveTo(cx - S*0.16, S*0.50, cx - S*0.095, S*0.42);
+    ctx.quadraticCurveTo(cx, S*0.37, cx + S*0.095, S*0.42);
+    ctx.quadraticCurveTo(cx + S*0.16, S*0.50, cx + S*0.13, S*0.69);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();                                                                            // arms into lap
+    ctx.moveTo(cx - S*0.145, S*0.50);
+    ctx.quadraticCurveTo(cx, S*0.71, cx + S*0.145, S*0.50);
+    ctx.quadraticCurveTo(cx, S*0.61, cx - S*0.145, S*0.50); ctx.fill();
+    ctx.fillRect(cx - S*0.027, S*0.335, S*0.054, S*0.055);                                       // neck
+    ctx.beginPath(); ctx.arc(cx, S*0.29, S*0.07, 0, Math.PI*2); ctx.fill();                      // head
+    ctx.beginPath(); ctx.arc(cx, S*0.222, S*0.027, 0, Math.PI*2); ctx.fill();                    // ushnisha
+  }),
+  transparent: true, depthWrite: false,
+}));
+figure.scale.setScalar(16); figure.position.set(CENTER.x, CENTER.y + 0.5, CENTER.z); figure.renderOrder = 3; scene.add(figure);
+let corePulse = 0;
+
+// ======================================================================
+// PARAMS
+// ======================================================================
+const params = { palette:'notes', glow:0.42, persist:26, drift:0.30, swirl:0.45, strings:0.30, syl:0.14 };
+const bind = (id, key, fn = v => +v) => { const el = document.getElementById(id); el.oninput = () => params[key] = fn(el.value); };
+bind('persist','persist'); bind('drift','drift',v=>+v/100); bind('swirl','swirl',v=>+v/100);
+bind('strings','strings',v=>+v/100); bind('syl','syl',v=>+v/100); bind('glow','glow',v=>+v/100);
+document.getElementById('palette').onchange = e => params.palette = e.target.value;
+
+// ======================================================================
+// MARKS
+// ======================================================================
+const marks = [];
+const held = new Map();
+let lastShape = null, frame = 0, nextRainbowFrame = 0;
+const clock = new THREE.Clock();
+const easeOut = x => 1 - Math.pow(1-x, 3);
+const _v = new THREE.Vector3();
+
+function spawnShape(channel, note, velocity) {
+  const vel = velocity / 127;                       // 0..1 — how hard the key was pressed
+  const oct = Math.floor(note / 12);
+  const octT = THREE.MathUtils.clamp((oct - 2) / 6, 0, 1);   // 0 low octave .. 1 high octave
+  const to = noteToTarget(note, vel);
+  const color = colorForNote(note).multiplyScalar(0.55 + octT * 0.9);   // octave -> brightness (low deeper, high brighter)
+  const geo = GEOMS[note % GEOMS.length]();
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x000000, emissive: color, emissiveIntensity: 0.35 + vel*1.5,   // light intensity follows touch
+    metalness: 0.3, roughness: 0.3, transparent: true, opacity: 1, flatShading: true,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(CENTER); mesh.scale.setScalar(0.001);
+  const wire = new THREE.LineSegments(new THREE.WireframeGeometry(geo),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.2 + vel*0.35 }));
+  mesh.add(wire); scene.add(mesh);
+  const mk = {
+    mesh, mat, wire, color, kind:'shape', dead:false,
+    from: CENTER.clone(), to, target: (0.6 + vel*2.2) * (1.5 - octT), born:0, fly:0, sustaining:true,  // octave -> size (low bigger)
+    drift: new THREE.Vector3((Math.random()-0.5), (Math.random()-0.5)*0.6+0.12, (Math.random()-0.5)).multiplyScalar(0.4+vel*0.6),
+    spin: new THREE.Vector3((Math.random()-0.5),(Math.random()-0.5),(Math.random()-0.5)).multiplyScalar(0.5+vel),
+    swirlDir: Math.random() < 0.5 ? 1 : -1,
+  };
+  marks.push(mk); held.set(channel+':'+note, mk);
+  corePulse = Math.min(1.2, corePulse + 0.25 + vel*0.45);
+
+  const others = [...held.values()].filter(m => m !== mk && !m.dead);
+  if (others.length >= 1 && Math.random() < 0.6 + params.strings*0.4) { for (const o of others.slice(-2)) addString(mk, o); }
+  else if (lastShape && !lastShape.dead && Math.random() < params.strings) addString(mk, lastShape);
+  lastShape = mk;
+
+  if (Math.random() < params.syl) spawnSeed(to, vel);
+  if (held.size >= 3 && frame > nextRainbowFrame) { spawnRainbow(); nextRainbowFrame = frame + 70; }
+
+  const cap = Math.floor(40 + params.persist*8);
+  if (marks.length > cap && marks[0]) marks[0].sustaining = false;
+}
+
+function glyphTexture(glyph, hex) {
+  return texFromDraw((ctx, S) => {
+    ctx.font = '170px "Noto Serif Tibetan","Kailasa","Tibetan Machine Uni",serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = hex; ctx.shadowBlur = 24; ctx.fillStyle = hex;
+    ctx.fillText(glyph, S/2, S/2 + 8);
+  }, 256);
+}
+function spawnSeed(nearPos, vel) {
+  const seed = SEEDS[Math.floor(Math.random()*SEEDS.length)];
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glyphTexture(seed.glyph, '#'+new THREE.Color(seed.color).getHexString()),
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  }));
+  spr.position.copy(CENTER); spr.scale.setScalar(0.001); scene.add(spr);
+  marks.push({
+    mesh: spr, mat: spr.material, wire: null, kind:'seed', dead:false,
+    from: CENTER.clone(), to: nearPos.clone().multiplyScalar(0.6).add(new THREE.Vector3(0,3,0)),
+    target: 5 + vel*2, born:0, fly:0, sustaining:true,
+    drift: new THREE.Vector3((Math.random()-0.5)*0.3, 0.5, (Math.random()-0.5)*0.3), swirlDir: 1,
+  });
+}
+function release(channel, note) { const m = held.get(channel+':'+note); if (m) { m.sustaining = false; held.delete(channel+':'+note); } }
+
+function disposeMark(m) {
+  m.dead = true; scene.remove(m.mesh);
+  if (m.mesh.geometry) m.mesh.geometry.dispose();
+  if (m.mat.map) m.mat.map.dispose();
+  m.mat.dispose();
+  if (m.wire) { m.wire.geometry.dispose(); m.wire.material.dispose(); }
+}
+function updateMarks(dt) {
+  for (let i = marks.length - 1; i >= 0; i--) {
+    const m = marks[i]; m.born += dt;
+    if (m.fly < 1) {
+      m.fly = Math.min(1, m.fly + dt*1.5);
+      m.mesh.position.lerpVectors(m.from, m.to, easeOut(m.fly));
+      m.mesh.scale.setScalar(THREE.MathUtils.lerp(0.001, m.target, easeOut(m.fly)));
+    } else {
+      m.mesh.position.addScaledVector(m.drift, dt*params.drift*2.5);
+      // swirl: tangential motion around the figure's vertical axis -> spiral
+      _v.set(m.mesh.position.x - CENTER.x, 0, m.mesh.position.z - CENTER.z);
+      const rad = _v.length() || 1;
+      m.mesh.position.x += (-_v.z/rad) * m.swirlDir * dt * params.swirl * 6;
+      m.mesh.position.z += ( _v.x/rad) * m.swirlDir * dt * params.swirl * 6;
+      if (m.kind === 'shape' && m.sustaining) m.mesh.scale.setScalar(m.target*(1+Math.sin(m.born*3)*0.03));
+    }
+    if (m.kind === 'shape') { m.mesh.rotation.x += m.spin.x*dt; m.mesh.rotation.y += m.spin.y*dt; m.mesh.rotation.z += m.spin.z*dt; }
+    const ttl = m.kind === 'seed' ? params.persist*1.6 : params.persist;
+    if (m.kind === 'seed' && m.sustaining && m.born > ttl*0.7) m.sustaining = false;
+    if (!m.sustaining && m.born > ttl) {
+      const k = THREE.MathUtils.damp(m.mat.opacity, 0, 0.6, dt);
+      m.mat.opacity = k; if (m.wire) m.wire.material.opacity = k*0.4;
+      m.mesh.scale.multiplyScalar(1 - dt*0.12);
+      if (k < 0.02) { disposeMark(m); marks.splice(i, 1); }
+    }
+  }
+  corePulse = Math.max(0, corePulse - dt*1.4);
+  aura.scale.setScalar(9 + corePulse*5);
+  figure.material.color.setScalar(1 + corePulse*0.5);
+  coreLight.intensity = corePulse*70;
+}
+
+// ======================================================================
+// STRINGS
+// ======================================================================
+const strings = [];
+function addString(a, b) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  const mat = new THREE.LineBasicMaterial({ color: a.color.clone().lerp(b.color, 0.5), transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending });
+  const line = new THREE.Line(g, mat); line.frustumCulled = false; scene.add(line);
+  strings.push({ a, b, line, mat, fade: 1 });
+}
+function updateStrings(dt) {
+  for (let i = strings.length - 1; i >= 0; i--) {
+    const s = strings[i];
+    if (s.a.dead || s.b.dead) s.fade -= dt*1.5;
+    const p = s.line.geometry.attributes.position.array, pa = s.a.mesh.position, pb = s.b.mesh.position;
+    p[0]=pa.x; p[1]=pa.y; p[2]=pa.z; p[3]=pb.x; p[4]=pb.y; p[5]=pb.z;
+    s.line.geometry.attributes.position.needsUpdate = true;
+    s.mat.opacity = Math.max(0, s.fade)*0.5;
+    if (s.fade <= 0) { scene.remove(s.line); s.line.geometry.dispose(); s.mat.dispose(); strings.splice(i, 1); }
+  }
+}
+
+// ======================================================================
+// RAINBOW (3+ note chord)
+// ======================================================================
+const rainbows = [];
+function spawnRainbow() {
+  const R = 24, seg = 160;
+  const geo = new THREE.TorusGeometry(R, 0.6, 10, seg, Math.PI);
+  const colors = [], pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const a = Math.atan2(pos.getY(i), pos.getX(i));
+    const c = new THREE.Color().setHSL((a/Math.PI)*0.82, 0.75, 0.62);
+    colors.push(c.r, c.g, c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(CENTER.x, CENTER.y - 2, CENTER.z); mesh.scale.setScalar(0.85);
+  scene.add(mesh); rainbows.push({ mesh, mat, born: 0 });
+}
+function updateRainbows(dt) {
+  for (let i = rainbows.length - 1; i >= 0; i--) {
+    const r = rainbows[i]; r.born += dt;
+    r.mesh.scale.setScalar(THREE.MathUtils.damp(r.mesh.scale.x, 1, 5, dt));
+    r.mat.opacity = r.born < 0.8 ? Math.min(0.8, r.born/0.8*0.8) : Math.max(0, 0.8 - (r.born-0.8)*0.16);
+    if (r.born > 6) { scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mat.dispose(); rainbows.splice(i, 1); }
+  }
+}
+
+function clearCanvas() {
+  for (const m of marks) disposeMark(m); marks.length = 0; held.clear(); lastShape = null;
+  for (const s of strings) { scene.remove(s.line); s.line.geometry.dispose(); s.mat.dispose(); } strings.length = 0;
+  for (const r of rainbows) { scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mat.dispose(); } rainbows.length = 0;
+}
+document.getElementById('clear').onclick = clearCanvas;
+
+// ======================================================================
+// MIDI
+// ======================================================================
+const dot = document.getElementById('dot'), statusEl = document.getElementById('status'), inputsSel = document.getElementById('inputs');
+let midiAccess = null;
+function handleMessage(e) {
+  const [status, d1, d2] = e.data, cmd = status & 0xf0, ch = status & 0x0f;
+  if (cmd === 0x90 && d2 > 0) spawnShape(ch, d1, d2);
+  else if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) release(ch, d1);
+}
+function bindInputs() {
+  for (const input of midiAccess.inputs.values()) input.onmidimessage = null;
+  const sel = inputsSel.value;
+  for (const input of midiAccess.inputs.values()) if (sel === 'all' || input.id === sel) input.onmidimessage = handleMessage;
+}
+function refreshList() {
+  const prev = inputsSel.value; inputsSel.innerHTML = '';
+  const all = document.createElement('option'); all.value = 'all'; all.textContent = 'All inputs'; inputsSel.appendChild(all);
+  const names = [];
+  for (const input of midiAccess.inputs.values()) { const o = document.createElement('option'); o.value = input.id; o.textContent = input.name; inputsSel.appendChild(o); names.push(input.name); }
+  inputsSel.value = [...inputsSel.options].some(o => o.value === prev) ? prev : 'all';
+  if (names.length) { dot.classList.add('live'); statusEl.textContent = names.join(', '); } else { dot.classList.remove('live'); statusEl.textContent = 'no device'; }
+  bindInputs();
+}
+inputsSel.addEventListener('change', bindInputs);
+if (navigator.requestMIDIAccess) {
+  navigator.requestMIDIAccess({ sysex: false }).then(a => { midiAccess = a; refreshList(); a.onstatechange = refreshList; })
+    .catch(err => statusEl.textContent = 'MIDI blocked: ' + err.message);
+} else statusEl.textContent = 'use Chrome';
+
+// ======================================================================
+// KEYBOARD + MENU SHOW/HIDE
+// ======================================================================
+const ui = document.getElementById('ui'), tag = document.getElementById('tag');
+let pinned = false, hideTimer;
+function scheduleHide() { clearTimeout(hideTimer); if (pinned) return; hideTimer = setTimeout(() => { ui.classList.add('hidden'); tag.classList.add('hidden'); }, 4000); }
+function showUI() { ui.classList.remove('hidden'); tag.classList.remove('hidden'); scheduleHide(); }
+addEventListener('pointermove', showUI); addEventListener('pointerdown', showUI); showUI();
+
+const keyMap = { a:60, w:61, s:62, e:63, d:64, f:65, t:66, g:67, y:68, h:69, u:70, j:71, k:72, o:73, l:74 };
+const heldKeys = new Set();
+addEventListener('keydown', e => {
+  const c = e.key.toLowerCase();
+  if (c === 'h' && !e.repeat) { pinned = !pinned; if (pinned) { ui.classList.remove('hidden'); tag.classList.remove('hidden'); clearTimeout(hideTimer); } else scheduleHide(); return; }
+  if (c === 'c' && !e.repeat) { clearCanvas(); return; }
+  if (c === 'f' && !e.repeat) { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); return; }
+  if (keyMap[c] && !heldKeys.has(c)) { heldKeys.add(c); spawnShape(0, keyMap[c], 100); }
+});
+addEventListener('keyup', e => { const c = e.key.toLowerCase(); if (keyMap[c]) { heldKeys.delete(c); release(0, keyMap[c]); } });
+
+// ======================================================================
+// LOOP
+// ======================================================================
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+function loop() {
+  frame++;
+  const dt = Math.min(clock.getDelta(), 0.05);
+  updateMarks(dt); updateStrings(dt); updateRainbows(dt);
+  spiral.material.rotation += dt*0.03;                       // the nautilus slowly turns
+  bloom.strength = params.glow;                              // live glow control
+  controls.update(); composer.render();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
