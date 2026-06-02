@@ -17,6 +17,14 @@
 <meta name="twitter:title" content="Caroline Rainbow" />
 <meta name="twitter:description" content="Sing, hum, or chant — and the light will answer." />
 <meta name="twitter:image" content="https://carolinerainbow.com/share.png" />
+<link rel="manifest" href="/manifest.json" />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" href="/favicon.png" type="image/png" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<meta name="theme-color" content="#08080e" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Caroline Rainbow" />
 <style>
   @font-face { font-family: 'Noto Serif Tibetan'; src: url('./vendor/fonts/tibetan.woff2') format('woff2'); font-display: swap; }
   html, body { margin: 0; height: 100%; background: #04050a; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
@@ -92,6 +100,9 @@
 </style>
 </head>
 <body>
+<h1 style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;">
+  Caroline Rainbow — sing, hum, or chant; your voice paints the rainbow body.
+</h1>
 <canvas id="c"></canvas>
 
 <div id="ui">
@@ -130,6 +141,15 @@
     <div class="enote" id="enterNote"></div>
   </div>
 </div>
+
+<script>
+  // Service worker — caches the shell so the page loads offline after a single visit
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
+</script>
 
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/jsm/" } }
@@ -671,6 +691,11 @@ setInterval(rainbowDissolveReset, 71000);                // 1 min 11 sec
 // ======================================================================
 // MIDI
 // ======================================================================
+// Touch-only platforms (iPhone/iPad, and iPadOS reporting as MacIntel). Used by
+// the MIDI fallback message and the tab-capture error wording.
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 const dot = document.getElementById('dot'), statusEl = document.getElementById('status'), inputsSel = document.getElementById('inputs');
 let midiAccess = null, midiDeviceCount = 0;
 function handleMessage(e) {
@@ -697,7 +722,13 @@ inputsSel.addEventListener('change', bindInputs);
 if (navigator.requestMIDIAccess) {
   navigator.requestMIDIAccess({ sysex: false }).then(a => { midiAccess = a; refreshList(); a.onstatechange = refreshList; })
     .catch(err => statusEl.textContent = 'MIDI blocked: ' + err.message);
-} else statusEl.textContent = 'use Chrome';
+} else {
+  // Web MIDI is Chrome/Edge-only. Don't leave a dead control — explain it.
+  statusEl.textContent = isIOS
+    ? 'voice only on iPhone — try Chrome on a Mac for MIDI'
+    : 'MIDI needs Chrome or Edge — voice still works here';
+  inputsSel.disabled = true;
+}
 
 // ======================================================================
 // KEYBOARD + MENU SHOW/HIDE
@@ -782,9 +813,6 @@ async function startAudio() {
 // YouTube, etc. getDisplayMedia requires video, so we discard the video track
 // the moment it arrives. The audio stream flows into the SAME analyser as the
 // mic, so spawnShape / voiceSphere code is unchanged.
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
 async function startTabAudio() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
     throw new Error(isIOS
