@@ -289,11 +289,28 @@ const POSES = [
 ];
 const FIG_K = 0.0266;          // world units per source pixel (seated ≈ 16u tall)
 const FOOT_Y = -5.5;           // shared baseline so feet never jump between poses
-const loader = new THREE.TextureLoader();
+const FIG_WHITE = '#eef3fb';   // soft, washed-out white the figure is recolored to
+// The source art is teal; a sprite tint can only multiply, so recolor at load:
+// keep each silhouette's soft alpha (the baked glow falloff) but swap the color
+// to white via a source-in composite. Returns a CanvasTexture.
+function whiteSilhouetteTexture(src) {
+  const tex = new THREE.Texture(); tex.colorSpace = THREE.SRGBColorSpace;
+  const img = new Image();
+  img.onload = () => {
+    const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    ctx.globalCompositeOperation = 'source-in';      // recolor opaque pixels, preserve alpha/glow
+    ctx.fillStyle = FIG_WHITE; ctx.fillRect(0, 0, cv.width, cv.height);
+    tex.image = cv; tex.needsUpdate = true;
+  };
+  img.src = src;
+  return tex;
+}
 const FIG = { sprites: [], base: [], cur: 0, next: -1, fade: 1, fadeDur: 4, hold: 7, timer: 0 };
 for (let i = 0; i < POSES.length; i++) {
   const p = POSES[i];
-  const tex = loader.load('./assets/' + p.file); tex.colorSpace = THREE.SRGBColorSpace;
+  const tex = whiteSilhouetteTexture('./assets/' + p.file);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: i === 0 ? 1 : 0 }));
   sp.center.set(0.5, 0);                                  // anchor at the feet
   const bw = p.w * FIG_K, bh = p.h * FIG_K;
