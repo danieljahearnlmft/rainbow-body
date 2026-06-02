@@ -633,6 +633,7 @@ function maybeAmbient(t) {
 const VOICE_GATE = 0.012;        // RMS below this is treated as silence
 let audioCtx = null, analyser = null, micStream = null, voiceBuf = null;
 let voiceNote = -1, lastVoiceSpawn = 0;
+let audioMode = null;            // 'voice' (mic, monophonic) | 'tab' (full music, polyphonic) | null
 const pitchHist = [];
 const voiceColor = new THREE.Color(0xffffff);
 
@@ -654,6 +655,7 @@ async function startAudio() {
   analyser = audioCtx.createAnalyser(); analyser.fftSize = 2048;
   voiceBuf = new Float32Array(analyser.fftSize);
   src.connect(analyser);   // analyser only — never routed to output, so no feedback
+  audioMode = 'voice';
   dot.classList.add('live'); statusEl.textContent = midiDeviceCount ? statusEl.textContent + ' + voice' : 'voice';
 }
 
@@ -675,10 +677,74 @@ async function startTabAudio() {
   stream.getVideoTracks().forEach(t => t.stop());     // we only want the audio
   micStream = stream;                                  // reuse so the rec pipeline grabs it too
   const src = audioCtx.createMediaStreamSource(stream);
-  analyser = audioCtx.createAnalyser(); analyser.fftSize = 2048;
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 4096;                              // finer bins for music (vs 2048 for voice)
+  analyser.smoothingTimeConstant = 0.7;
   voiceBuf = new Float32Array(analyser.fftSize);
   src.connect(analyser);
+  audioMode = 'tab';
   dot.classList.add('live'); statusEl.textContent = midiDeviceCount ? statusEl.textContent + ' + tab audio' : 'tab audio';
+}
+
+// ----- polyphonic spectral spawning (tab/music mode) -----
+//   The voice path detects ONE fundamental and spawns one jewel-stream. A full
+//   mix has many pitched components at once (kick, bass, voice, lead, cymbal),
+//   so a monophonic detector flips between them and the visualization stutters.
+//   Instead: split the spectrum into 12 log-spaced bands, find the loudest bin
+//   per band, and pick the top 3 bands by energy each cycle — those become up
+//   to 3 simultaneous jewels per spawn tick. Per-band cooldown stops a single
+//   sustained bass note from saturating the scene; the global throttle keeps
+//   the spawn rate sane.
+const MUSIC_BANDS = 12, MUSIC_FMIN = 80, MUSIC_FMAX = 5000;
+const MUSIC_GATE = 0.30;                                // peak amplitude (0..1) to spawn
+let specBuf = null, lastMusicSpawn = 0;
+const lastBandSpawnFrame = new Int32Array(MUSIC_BANDS);
+function updateMusic(dt, t) {
+  if (!analyser) return;
+  if (!specBuf || specBuf.length !== analyser.frequencyBinCount) specBuf = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(specBuf);
+  const binHz = (audioCtx.sampleRate / 2) / specBuf.length;
+  const peaks = [];
+  let bandEnergy = 0;
+  for (let b = 0; b < MUSIC_BANDS; b++) {
+    const f0 = MUSIC_FMIN * Math.pow(MUSIC_FMAX / MUSIC_FMIN, b / MUSIC_BANDS);
+    const f1 = MUSIC_FMIN * Math.pow(MUSIC_FMAX / MUSIC_FMIN, (b + 1) / MUSIC_BANDS);
+    const i0 = Math.max(1, Math.floor(f0 / binHz));
+    const i1 = Math.min(specBuf.length - 1, Math.ceil(f1 / binHz));
+    let pIdx = i0, pVal = 0;
+    for (let i = i0; i <= i1; i++) if (specBuf[i] > pVal) { pVal = specBuf[i]; pIdx = i; }
+    const norm = pVal / 255;
+    bandEnergy += norm;
+    if (norm > MUSIC_GATE) peaks.push({ band: b, idx: pIdx, norm });
+  }
+  peaks.sort((a, b) => b.norm - a.norm);
+  if (t - lastMusicSpawn > 0.08) {                      // global throttle: max ~12 spawn-cycles/sec
+    for (const p of peaks.slice(0, 3)) {                // top 3 simultaneous
+      if (frame - lastBandSpawnFrame[p.band] > 10) {    // per-band cooldown: ~165ms
+        const note = Math.round(69 + 12 * Math.log2((p.idx * binHz) / 440));
+        if (note >= 24 && note <= 96) {
+          const vel = Math.min(120, Math.round(p.norm * 130) + 20);
+          spawnShape(0, note, vel);
+          lastBandSpawnFrame[p.band] = frame;
+          lastInputClock = t;
+        }
+      }
+    }
+    lastMusicSpawn = t;
+  }
+  // sphere / overall energy — same channel as voice mode, but driven by total spectral energy
+  const energyNorm = bandEnergy / MUSIC_BANDS;
+  const sustained = energyNorm > 0.05;
+  voiceSustain = sustained ? Math.min(1, voiceSustain + dt * 0.6) : Math.max(0, voiceSustain - dt * 0.4);
+  voiceSphere.scale.setScalar(THREE.MathUtils.damp(voiceSphere.scale.x, 2 + voiceSustain * 14 + energyNorm * 12, 3, dt));
+  voiceSphere.material.opacity = THREE.MathUtils.damp(voiceSphere.material.opacity, voiceSustain * 0.3, 3, dt);
+  if (peaks.length) {
+    const dom = Math.round(69 + 12 * Math.log2((peaks[0].idx * binHz) / 440));
+    if (dom >= 24 && dom <= 96) {
+      voiceColor.copy(colorForNote(dom));
+      voiceSphere.material.color.lerp(voiceColor, dt * 2);
+    }
+  }
 }
 function median(a) { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; }
 function detectPitch(buf, sr) {
@@ -790,7 +856,7 @@ function loop() {
   frame++;
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
-  updateVoice(dt, t);
+  if (audioMode === 'tab') updateMusic(dt, t); else updateVoice(dt, t);
   maybeAmbient(t);
   updateMarks(dt); updateFigure(dt, t); updateStrings(dt); updateRainbows(dt);
 
