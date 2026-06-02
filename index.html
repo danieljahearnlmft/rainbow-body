@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Rainbow Body — MIDI Meditation Visualizer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Jalü — Rainbow Body</title>
 <style>
   @font-face { font-family: 'Noto Serif Tibetan'; src: url('./vendor/fonts/tibetan.woff2') format('woff2'); font-display: swap; }
   html, body { margin: 0; height: 100%; background: #04050a; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
-  #c { display: block; width: 100vw; height: 100vh; }
+  #c { display: block; width: 100vw; height: 100vh; touch-action: none; }
   #ui {
     position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 10;
     display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: center;
@@ -28,13 +28,21 @@
   #ui button:hover { background: #222637; }
   #tag { position: fixed; left: 14px; bottom: 12px; z-index: 9; color: #4a5366; font-size: 11px; transition: opacity .5s; }
   #tag.hidden { opacity: 0; }
+  /* phones: keep the panel thumb-reachable; one row that scrolls; hide the desktop hint */
+  @media (max-width: 760px) {
+    #ui { font-size: 11px; gap: 12px; padding: 7px 12px; bottom: max(8px, env(safe-area-inset-bottom));
+          flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; -webkit-overflow-scrolling: touch; }
+    #ui::-webkit-scrollbar { display: none; }
+    #ui input[type=range] { width: 56px; }
+    #tag { display: none; }
+  }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 
 <div id="ui">
-  <span class="grp"><span class="ttl">◇ RAINBOW BODY</span><span class="dot" id="dot"></span><span id="status" class="muted"></span></span>
+  <span class="grp"><span class="ttl">◇ JALÜ</span><span class="dot" id="dot"></span><span id="status" class="muted"></span></span>
   <span class="grp"><label>Input <select id="inputs"></select></label></span>
   <span class="grp"><label>Color
     <select id="palette">
@@ -69,6 +77,15 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 if (document.fonts && document.fonts.load) document.fonts.load('40px "Noto Serif Tibetan"');
 
 // ======================================================================
+// LAYERING — the law of this piece
+//   The NOTES are the music; they must always render on top.
+//   BACKGROUND (farthest) -> CENTER FIGURE (middle) -> NOTES (nearest, always visible).
+//   renderOrder forces draw order within the transparent pass; the figure and
+//   background write no depth, so they can never occlude a note.
+// ======================================================================
+const ORDER = { BG: -20, AURA: -14, FIGURE: -8, RAINBOW: 6, SPHERE: 8, NOTE: 12, STRING: 13, SEED: 14 };
+
+// ======================================================================
 // CORRESPONDENCE ENGINE
 // ======================================================================
 const NATURALS = { 0:0xffffff, 2:0x2f6bff, 4:0xff3b30, 5:0x3ad16a, 7:0xffe14d, 9:0xd4af37, 11:0x8b5a2b };
@@ -88,17 +105,25 @@ const SEEDS = [
   { name:'AH', glyph:'ཨཱཿ', color:0xffffff },
   { name:'HUNG', glyph:'ཧཱུྃ', color:0x2f6bff },
 ];
-const SPECTRA = {
-  rainbow:  t => new THREE.Color().setHSL(0.0 + t*0.82, 0.7, 0.6),
-  aurora:   t => new THREE.Color().setHSL(0.33 + t*0.33, 0.65, 0.6),
-  vajra:    t => new THREE.Color([0xff3b30,0xffffff,0x2f6bff][Math.min(2,Math.floor(t*3))]),
-  elements: t => new THREE.Color([0xf2c14e,0xeaf4ff,0xff4d3d,0x4bd47a,0x7fb2ff][Math.min(4,Math.floor(t*5))]),
+
+// ---- Quantized jewel colors -------------------------------------------------
+// Continuous hue ramps smeared adjacent notes into a wash. Instead every palette
+// (except "notes", which is already 12 discrete pitch-class colors) snaps to a set
+// of five widely-separated anchor colors — the five-light / five-element families.
+// note % 5 guarantees neighbouring semitones land on different anchors, so notes
+// read as separate jewels rather than a gradient.
+const ANCHORS = {
+  rainbow:  [0xff2d2d, 0xff8a00, 0xffe14d, 0x37d35a, 0x2f6bff],   // red · orange · gold · green · blue
+  aurora:   [0x18e0a0, 0x49d36a, 0x7ef0c0, 0x46b6ff, 0x9a6bff],   // teal · green · mint · sky · violet
+  vajra:    [0xffffff, 0xffd23d, 0xff3b30, 0x37d35a, 0x2f6bff],   // five buddha families
+  elements: [0xf2c14e, 0xeaf4ff, 0xff4d3d, 0x4bd47a, 0x7fb2ff],   // earth · space · fire · wind · water
 };
-const LO = 36, HI = 96;
 function colorForNote(note) {
-  if (params.palette === 'notes') return NOTE_COLORS[((note%12)+12)%12].clone();
-  return (SPECTRA[params.palette] || SPECTRA.rainbow)(THREE.MathUtils.clamp((note-LO)/(HI-LO),0,1));
+  if (params.palette === 'notes') return NOTE_COLORS[((note % 12) + 12) % 12].clone();
+  const set = ANCHORS[params.palette] || ANCHORS.rainbow;
+  return new THREE.Color(set[((note % 5) + 5) % 5]);
 }
+
 const GEOMS = [
   () => new THREE.IcosahedronGeometry(1,0), () => new THREE.OctahedronGeometry(1,0),
   () => new THREE.TetrahedronGeometry(1,0), () => new THREE.BoxGeometry(1.4,1.4,1.4),
@@ -120,7 +145,7 @@ function noteToTarget(note, vel) {
 // SCENE
 // ======================================================================
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -133,6 +158,8 @@ camera.position.set(0, 6, 52);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true; controls.dampingFactor = 0.06;
 controls.target.copy(CENTER); controls.autoRotate = true; controls.autoRotateSpeed = 0.3;
+controls.enablePan = false;                 // one finger orbits, pinch zooms — no accidental pan on touch
+controls.minDistance = 12; controls.maxDistance = 140;
 
 scene.add(new THREE.AmbientLight(0x404060, 1.1));
 const keyLight = new THREE.PointLight(0xffffff, 70, 400); keyLight.position.set(20,30,20); scene.add(keyLight);
@@ -144,7 +171,7 @@ const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.
 composer.addPass(bloom);
 
 const grid = new THREE.GridHelper(180, 54, 0x121826, 0x090d15);
-grid.material.transparent = true; grid.material.opacity = 0.25; grid.position.y = -16; scene.add(grid);
+grid.material.transparent = true; grid.material.opacity = 0.25; grid.position.y = -16; grid.renderOrder = ORDER.BG; scene.add(grid);
 
 function texFromDraw(draw, S = 512) {
   const cv = document.createElement('canvas'); cv.width = cv.height = S;
@@ -152,7 +179,14 @@ function texFromDraw(draw, S = 512) {
   const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; return tx;
 }
 
-// ---- Soft pastel rainbow SPIRAL backdrop (the nautilus) ----
+// ======================================================================
+// BACKGROUND — its own breathing layer (medium pace: slower than notes,
+// faster than the figure). A pastel rainbow nautilus that slowly swirls and,
+// over many seconds, dissolves toward near-white and back — rainbow light
+// resolving into clear light. A white "breath" sprite handles the wash so the
+// rainbow texture itself stays saturated. Lives behind everything; additive,
+// so it can lift the field but never occlude a note.
+// ======================================================================
 const spiral = new THREE.Sprite(new THREE.SpriteMaterial({
   map: texFromDraw((ctx, S) => {
     const c = S/2;
@@ -169,11 +203,25 @@ const spiral = new THREE.Sprite(new THREE.SpriteMaterial({
     g.addColorStop(0.7, 'rgba(4,5,10,0.0)'); g.addColorStop(1, 'rgba(4,5,10,1)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
   }, 768),
-  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55,
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5,
 }));
-spiral.scale.setScalar(150); spiral.position.copy(CENTER); spiral.position.z = -28; scene.add(spiral);
+spiral.scale.setScalar(150); spiral.position.copy(CENTER); spiral.position.z = -28; spiral.renderOrder = ORDER.BG; scene.add(spiral);
 
-// ---- Lotus + aura + luminous seated figure ----
+// soft white RING that breathes up to wash the rainbow arms toward clear light.
+// Stays clear in the central ~25% so it never piles light on the figure or
+// flattens note contrast — the wash lives out where the nautilus arms are.
+const whiteBreath = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: texFromDraw((ctx, S) => {
+    const c = S/2, g = ctx.createRadialGradient(c, c, 0, c, c, c);
+    g.addColorStop(0, 'rgba(235,242,255,0)'); g.addColorStop(0.25, 'rgba(235,242,255,0)');
+    g.addColorStop(0.55, 'rgba(240,245,255,0.85)'); g.addColorStop(1, 'rgba(235,242,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
+  }),
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.0,
+}));
+whiteBreath.scale.setScalar(150); whiteBreath.position.copy(spiral.position); whiteBreath.renderOrder = ORDER.BG + 1; scene.add(whiteBreath);
+
+// ---- Aura behind the figure ----
 const aura = new THREE.Sprite(new THREE.SpriteMaterial({
   map: texFromDraw((ctx, S) => {
     const c = S/2, g = ctx.createRadialGradient(c, c, 0, c, c, c);
@@ -182,13 +230,65 @@ const aura = new THREE.Sprite(new THREE.SpriteMaterial({
   }),
   transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
 }));
-aura.scale.setScalar(9); aura.position.copy(CENTER); scene.add(aura);
+aura.scale.setScalar(9); aura.position.copy(CENTER); aura.renderOrder = ORDER.AURA; scene.add(aura);
 
-// Center figure: Caroline's silhouette — "may all beings be happy", in her honor.
-const figTex = new THREE.TextureLoader().load('./assets/caroline.png');
-figTex.colorSpace = THREE.SRGBColorSpace;
-const figure = new THREE.Sprite(new THREE.SpriteMaterial({ map: figTex, transparent: true, depthWrite: false }));
-figure.scale.setScalar(15); figure.position.set(CENTER.x, CENTER.y + 0.5, CENTER.z); figure.renderOrder = 3; scene.add(figure);
+// ======================================================================
+// CENTER FIGURE — Caroline, four poses. "May all beings be happy," in her honor.
+//   Four transparent silhouettes (same body, same teal, each with baked glow).
+//   They are baseline-aligned on the feet and share one units-per-pixel scale, so
+//   a taller pose simply rises higher — it reads as one body changing, not images
+//   swapping. Poses crossfade slowly in weighted-random order, biased toward the
+//   seated "home" pose. The figure is the SLOWEST-moving element in the piece:
+//   a constant faint breath and sway under a very slow pose cycle.
+// ======================================================================
+const POSES = [
+  { file: 'caroline_01_seated_meditation.png', w: 500, h: 602, weight: 0.46 },  // home / still point
+  { file: 'caroline_02_standing_arms_raised.png', w: 437, h: 768, weight: 0.18 },
+  { file: 'caroline_03_forward_fold.png', w: 490, h: 670, weight: 0.18 },
+  { file: 'caroline_04_seated_grounded.png', w: 504, h: 711, weight: 0.18 },
+];
+const FIG_K = 0.0266;          // world units per source pixel (seated ≈ 16u tall)
+const FOOT_Y = -5.5;           // shared baseline so feet never jump between poses
+const loader = new THREE.TextureLoader();
+const FIG = { sprites: [], base: [], cur: 0, next: -1, fade: 1, fadeDur: 4, hold: 7, timer: 0 };
+for (let i = 0; i < POSES.length; i++) {
+  const p = POSES[i];
+  const tex = loader.load('./assets/' + p.file); tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: i === 0 ? 1 : 0 }));
+  sp.center.set(0.5, 0);                                  // anchor at the feet
+  const bw = p.w * FIG_K, bh = p.h * FIG_K;
+  sp.scale.set(bw, bh, 1); sp.position.set(0, FOOT_Y, 0); sp.renderOrder = ORDER.FIGURE;
+  scene.add(sp); FIG.sprites.push(sp); FIG.base.push({ x: bw, y: bh });
+}
+function figPickNext() {
+  // weighted random, never repeat current, bias toward the seated home pose
+  const w = POSES.map((p, i) => i === FIG.cur ? 0 : p.weight);
+  let sum = w.reduce((a, b) => a + b, 0), r = Math.random() * sum;
+  for (let i = 0; i < w.length; i++) { r -= w[i]; if (r <= 0) return i; }
+  return (FIG.cur + 1) % POSES.length;
+}
+function updateFigure(dt, t) {
+  FIG.timer += dt;
+  if (FIG.next < 0) {                                     // holding a pose
+    if (FIG.timer > FIG.hold) { FIG.next = figPickNext(); FIG.fade = 0; FIG.fadeDur = 3.5 + Math.random() * 2.5; }
+  } else {                                                // crossfading into the next pose
+    FIG.fade += dt / FIG.fadeDur;
+    if (FIG.fade >= 1) { FIG.cur = FIG.next; FIG.next = -1; FIG.timer = 0; FIG.hold = 6 + Math.random() * 6; }
+  }
+  const breath = 1 + Math.sin(t * 0.5) * 0.012;          // subtle constant breathing
+  const swayX = Math.sin(t * 0.23) * 0.18;               // faint sway
+  const swayR = Math.sin(t * 0.19) * 0.012;
+  const lift = 0.92 + corePulse * 0.4;                   // brighten gently when notes arrive
+  for (let i = 0; i < FIG.sprites.length; i++) {
+    const sp = FIG.sprites[i], b = FIG.base[i];
+    let op = 0;
+    if (i === FIG.cur) op = FIG.next < 0 ? 1 : 1 - FIG.fade;
+    if (i === FIG.next) op = FIG.fade;
+    sp.material.opacity = op * lift;
+    sp.scale.set(b.x * breath, b.y * breath, 1);
+    sp.position.x = swayX; sp.material.rotation = swayR;
+  }
+}
 let corePulse = 0;
 
 // ======================================================================
@@ -201,16 +301,18 @@ bind('strings','strings',v=>+v/100); bind('syl','syl',v=>+v/100); bind('glow','g
 document.getElementById('palette').onchange = e => params.palette = e.target.value;
 
 // ======================================================================
-// MARKS
+// MARKS  (the notes — the heart of the piece)
 // ======================================================================
 const marks = [];
 const held = new Map();
 let lastShape = null, frame = 0, nextRainbowFrame = 0;
+let energy = 0;                  // smoothed overall input energy, drives the background pulse
+let lastInputClock = 0;          // wall-clock of the last real (non-ambient) note, for idle detection
 const clock = new THREE.Clock();
 const easeOut = x => 1 - Math.pow(1-x, 3);
 const _v = new THREE.Vector3();
 
-function spawnShape(channel, note, velocity) {
+function spawnShape(channel, note, velocity, ambient = false) {
   const vel = velocity / 127;                       // 0..1 — how hard the key was pressed
   const oct = Math.floor(note / 12);
   const octT = THREE.MathUtils.clamp((oct - 2) / 6, 0, 1);   // 0 low octave .. 1 high octave
@@ -222,9 +324,10 @@ function spawnShape(channel, note, velocity) {
     metalness: 0.3, roughness: 0.3, transparent: true, opacity: 1, flatShading: true,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.copy(CENTER); mesh.scale.setScalar(0.001);
+  mesh.position.copy(CENTER); mesh.scale.setScalar(0.001); mesh.renderOrder = ORDER.NOTE;
   const wire = new THREE.LineSegments(new THREE.WireframeGeometry(geo),
     new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.2 + vel*0.35 }));
+  wire.renderOrder = ORDER.NOTE;
   mesh.add(wire); scene.add(mesh);
   const mk = {
     mesh, mat, wire, color, kind:'shape', dead:false,
@@ -235,6 +338,8 @@ function spawnShape(channel, note, velocity) {
   };
   marks.push(mk); held.set(channel+':'+note, mk);
   corePulse = Math.min(1.2, corePulse + 0.25 + vel*0.45);
+  energy = Math.min(1.5, energy + 0.12 + vel*0.3);
+  if (!ambient) lastInputClock = clock.elapsedTime;   // real input silences the ambient drift
 
   const others = [...held.values()].filter(m => m !== mk && !m.dead);
   if (others.length >= 1 && Math.random() < 0.6 + params.strings*0.4) { for (const o of others.slice(-2)) addString(mk, o); }
@@ -246,6 +351,7 @@ function spawnShape(channel, note, velocity) {
 
   const cap = Math.floor(40 + params.persist*8);
   if (marks.length > cap && marks[0]) marks[0].sustaining = false;
+  return mk;
 }
 
 function glyphTexture(glyph, hex) {
@@ -262,7 +368,7 @@ function spawnSeed(nearPos, vel) {
     map: glyphTexture(seed.glyph, '#'+new THREE.Color(seed.color).getHexString()),
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   }));
-  spr.position.copy(CENTER); spr.scale.setScalar(0.001); scene.add(spr);
+  spr.position.copy(CENTER); spr.scale.setScalar(0.001); spr.renderOrder = ORDER.SEED; scene.add(spr);
   marks.push({
     mesh: spr, mat: spr.material, wire: null, kind:'seed', dead:false,
     from: CENTER.clone(), to: nearPos.clone().multiplyScalar(0.6).add(new THREE.Vector3(0,3,0)),
@@ -307,7 +413,6 @@ function updateMarks(dt) {
   }
   corePulse = Math.max(0, corePulse - dt*1.4);
   aura.scale.setScalar(9 + corePulse*5);
-  figure.material.color.setScalar(1 + corePulse*0.5);
   coreLight.intensity = corePulse*70;
 }
 
@@ -319,7 +424,7 @@ function addString(a, b) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
   const mat = new THREE.LineBasicMaterial({ color: a.color.clone().lerp(b.color, 0.5), transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending });
-  const line = new THREE.Line(g, mat); line.frustumCulled = false; scene.add(line);
+  const line = new THREE.Line(g, mat); line.frustumCulled = false; line.renderOrder = ORDER.STRING; scene.add(line);
   strings.push({ a, b, line, mat, fade: 1 });
 }
 function updateStrings(dt) {
@@ -350,7 +455,7 @@ function spawnRainbow() {
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(CENTER.x, CENTER.y - 2, CENTER.z); mesh.scale.setScalar(0.85);
+  mesh.position.set(CENTER.x, CENTER.y - 2, CENTER.z); mesh.scale.setScalar(0.85); mesh.renderOrder = ORDER.RAINBOW;
   scene.add(mesh); rainbows.push({ mesh, mat, born: 0 });
 }
 function updateRainbows(dt) {
@@ -373,7 +478,7 @@ document.getElementById('clear').onclick = clearCanvas;
 // MIDI
 // ======================================================================
 const dot = document.getElementById('dot'), statusEl = document.getElementById('status'), inputsSel = document.getElementById('inputs');
-let midiAccess = null;
+let midiAccess = null, midiDeviceCount = 0;
 function handleMessage(e) {
   const [status, d1, d2] = e.data, cmd = status & 0xf0, ch = status & 0x0f;
   if (cmd === 0x90 && d2 > 0) spawnShape(ch, d1, d2);
@@ -390,6 +495,7 @@ function refreshList() {
   const names = [];
   for (const input of midiAccess.inputs.values()) { const o = document.createElement('option'); o.value = input.id; o.textContent = input.name; inputsSel.appendChild(o); names.push(input.name); }
   inputsSel.value = [...inputsSel.options].some(o => o.value === prev) ? prev : 'all';
+  midiDeviceCount = names.length;
   if (names.length) { dot.classList.add('live'); statusEl.textContent = names.join(', '); } else { dot.classList.remove('live'); statusEl.textContent = 'no device'; }
   bindInputs();
 }
@@ -420,6 +526,22 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { const c = e.key.toLowerCase(); if (keyMap[c]) { heldKeys.delete(c); release(0, keyMap[c]); } });
 
 // ======================================================================
+// AMBIENT — never a dead screen. With no real input for a few seconds, the
+// field gently plays itself: sparse pentatonic notes at low velocity, quieting
+// the instant a real note (MIDI / key / voice) arrives.
+// ======================================================================
+const PENTA = [0, 2, 4, 7, 9];                 // C D E G A relative
+let nextAmbient = 4;
+function maybeAmbient(t) {
+  if (t - lastInputClock < 6) return;          // real input recently — stay quiet
+  if (t < nextAmbient) return;
+  const pc = PENTA[Math.floor(Math.random() * PENTA.length)];
+  const oct = 4 + Math.floor(Math.random() * 3);             // octaves 4..6
+  spawnShape(0, oct * 12 + pc, 38 + Math.floor(Math.random() * 26), true);
+  nextAmbient = t + 2.6 + Math.random() * 4;                 // sparse, irregular
+}
+
+// ======================================================================
 // LOOP
 // ======================================================================
 addEventListener('resize', () => {
@@ -429,8 +551,19 @@ addEventListener('resize', () => {
 function loop() {
   frame++;
   const dt = Math.min(clock.getDelta(), 0.05);
-  updateMarks(dt); updateStrings(dt); updateRainbows(dt);
-  spiral.material.rotation += dt*0.03;                       // the nautilus slowly turns
+  const t = clock.elapsedTime;
+  maybeAmbient(t);
+  updateMarks(dt); updateFigure(dt, t); updateStrings(dt); updateRainbows(dt);
+
+  // background breath: slow swirl + a many-second wash toward clear light
+  const wash = Math.sin(t * 0.09) * 0.5 + 0.5;              // 0..1, period ≈ 70s
+  whiteBreath.material.opacity = 0.06 + wash * 0.34;
+  spiral.material.opacity = 0.5 - wash * 0.18;
+  spiral.material.rotation += dt * 0.03 * (1 + energy * 0.6);
+  const bgScale = 150 * (1 + energy * 0.05 + Math.sin(t * 0.4) * 0.008);
+  spiral.scale.setScalar(bgScale); whiteBreath.scale.setScalar(bgScale);
+  energy = Math.max(0, energy - dt * 0.4);
+
   bloom.strength = params.glow;                              // live glow control
   controls.update(); composer.render();
   requestAnimationFrame(loop);
