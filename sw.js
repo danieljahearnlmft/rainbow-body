@@ -1,6 +1,6 @@
 /* Caroline Rainbow — service worker
    Bump CACHE when you ship changes so clients pick them up. */
-const CACHE = 'caroline-rainbow-v1';
+const CACHE = 'caroline-rainbow-v2';
 
 // Core shell precached on install. The five vendor files below are the ones
 // directly imported by index.html. Three.js addons import further helper
@@ -36,14 +36,14 @@ const PRECACHE = [
   '/assets/seed_letters/symbol_03_red.png',
   '/assets/seed_letters/symbol_04_blue.png',
   '/assets/seed_letters/symbol_05_yellow.png',
-  '/assets/symbols/sheet_symbol_1_1.png',
-  '/assets/symbols/sheet_symbol_1_2.png',
-  '/assets/symbols/sheet_symbol_2_1.png',
-  '/assets/symbols/sheet_symbol_2_2.png',
-  '/assets/symbols/sheet_symbol_3_1.png',
-  '/assets/symbols/sheet_symbol_3_2.png',
-  '/assets/symbols/sheet_symbol_4_1.png',
-  '/assets/symbols/sheet_symbol_4_2.png'
+  '/assets/symbols/auspicious-parasol.png',
+  '/assets/symbols/auspicious-golden-fish.png',
+  '/assets/symbols/auspicious-treasure-vase.png',
+  '/assets/symbols/auspicious-lotus.png',
+  '/assets/symbols/auspicious-conch.png',
+  '/assets/symbols/auspicious-endless-knot.png',
+  '/assets/symbols/auspicious-victory-banner.png',
+  '/assets/symbols/auspicious-dharma-wheel.png'
 ];
 
 self.addEventListener('install', (event) => {

@@ -1,0 +1,17 @@
+<svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" color="#f1f6ff">
+  <defs><filter id="g" x="-50%" y="-50%" width="200%" height="200%">
+<feGaussianBlur stdDeviation="2.4" result="a"/><feGaussianBlur stdDeviation="6" result="b"/>
+<feMerge><feMergeNode in="b"/><feMergeNode in="a"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+  <g filter="url(#g)" stroke="#f1f6ff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M90,70 C72,96 72,150 90,176 C108,150 108,96 90,70 Z" fill="none"/>
+      <path d="M90,168 L103,194 M90,168 L77,194 M103,194 Q90,182 77,194" fill="none"/>
+      <path d="M74,112 Q60,120 70,132" fill="none"/>
+      <path d="M100,98 Q90,106 80,98" fill="none"/>
+      <circle cx="83" cy="88" r="3.5" fill="none"/>
+      <path d="M150,70 C168,96 168,150 150,176 C132,150 132,96 150,70 Z" fill="none"/>
+      <path d="M150,168 L137,194 M150,168 L163,194 M137,194 Q150,182 163,194" fill="none"/>
+      <path d="M166,112 Q180,120 170,132" fill="none"/>
+      <path d="M140,98 Q150,106 160,98" fill="none"/>
+      <circle cx="157" cy="88" r="3.5" fill="none"/>
+  </g>
+</svg>

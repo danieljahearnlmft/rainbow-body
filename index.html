@@ -406,13 +406,14 @@ const clock = new THREE.Clock();
 const easeOut = x => 1 - Math.pow(1-x, 3);
 const _v = new THREE.Vector3();
 
-// The Eight Auspicious Symbols of Tibetan iconography (parasol, fish, vase,
-// lotus, conch, endless knot, victory banner, dharma wheel) — loaded once,
-// occasionally substituted for a polyhedron so the field carries a little of
-// the thangka. Shared textures: disposeMark respects `keepMap`.
+// The Eight Auspicious Symbols rendered as clean monoline light-language —
+// parasol, fish, vase, lotus, conch, endless knot, banner, wheel. Each is a
+// near-white glow sprite, tinted at spawn by colorForNote so the symbol picks
+// up the note's color while keeping its luminous edge. Shared textures:
+// disposeMark respects `keepMap` so they're never freed.
 const AUSPICIOUS = [
-  'sheet_symbol_1_1','sheet_symbol_1_2','sheet_symbol_2_1','sheet_symbol_2_2',
-  'sheet_symbol_3_1','sheet_symbol_3_2','sheet_symbol_4_1','sheet_symbol_4_2',
+  'auspicious-parasol','auspicious-golden-fish','auspicious-treasure-vase','auspicious-lotus',
+  'auspicious-conch','auspicious-endless-knot','auspicious-victory-banner','auspicious-dharma-wheel',
 ].map(n => { const t = loader.load(`./assets/symbols/${n}.png`); t.colorSpace = THREE.SRGBColorSpace; return t; });
 
 // Five Bön warrior seed letters, one per element family. The order matches the
@@ -433,8 +434,11 @@ function spawnAuspicious(note, velocity, quiet) {
   const octT = THREE.MathUtils.clamp((oct - 2) / 6, 0, 1);
   const to = noteToTarget(note, vel);
   const tex = AUSPICIOUS[Math.floor(Math.random() * AUSPICIOUS.length)];
+  // Symbol PNGs are near-white monoline glow — tint pulls them toward the
+  // note's color so each symbol picks up the music while keeping its luminous edge.
+  const tint = colorForNote(note).clone().lerp(new THREE.Color(0xffffff), 0.35);
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    map: tex, color: tint, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     opacity: quiet ? 0.7 : 0.92,
   }));
   spr.position.copy(CENTER); spr.scale.setScalar(0.001); spr.renderOrder = ORDER.SEED; scene.add(spr);
@@ -642,31 +646,53 @@ function updateStrings(dt) {
 // RAINBOW (3+ note chord)
 // ======================================================================
 const rainbows = [];
+let audioRMS = 0;                                // smoothed 0..1 loudness fed by voice + music paths
+const _rainbowTmp = new THREE.Color();
 function spawnRainbow() {
   const R = 24, seg = 160;
   const geo = new THREE.TorusGeometry(R, 0.6, 10, seg, Math.PI);
-  const colors = [], pos = geo.attributes.position;
-  // Each blast starts at a different hue and spans the full spectrum across the arc,
-  // so successive rainbows feel like different members of the same family rather
-  // than one stamped logo. Saturation/lightness held high for the jewel feel.
-  const hueOffset = Math.random();
-  for (let i = 0; i < pos.count; i++) {
-    const a = Math.atan2(pos.getY(i), pos.getX(i));
-    const c = new THREE.Color().setHSL(((a/Math.PI) + hueOffset) % 1, 0.85, 0.6);
-    colors.push(c.r, c.g, c.b);
-  }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const pos = geo.attributes.position;
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pos.count * 3), 3));
   const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(CENTER.x, CENTER.y - 2, CENTER.z); mesh.scale.setScalar(0.85); mesh.renderOrder = ORDER.RAINBOW;
-  scene.add(mesh); rainbows.push({ mesh, mat, born: 0 });
+  scene.add(mesh);
+  rainbows.push({ mesh, mat, born: 0, hueOffset: Math.random() });
 }
-function updateRainbows(dt) {
+function updateRainbows(dt, t) {
   for (let i = rainbows.length - 1; i >= 0; i--) {
     const r = rainbows[i]; r.born += dt;
-    r.mesh.scale.setScalar(THREE.MathUtils.damp(r.mesh.scale.x, 1, 5, dt));
-    r.mat.opacity = r.born < 0.8 ? Math.min(0.8, r.born/0.8*0.8) : Math.max(0, 0.8 - (r.born-0.8)*0.16);
-    if (r.born > 6) { scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mat.dispose(); rainbows.splice(i, 1); }
+    // form-and-dissolve envelope. Lives ~10s, breathes with audio while alive.
+    const target = 0.95 + audioRMS * 0.18;
+    r.mesh.scale.setScalar(THREE.MathUtils.damp(r.mesh.scale.x, target, 4, dt));
+    // aurora drift — gentle sway around the arc axis
+    r.mesh.rotation.z = Math.sin(t * 0.18 + r.hueOffset * 6.28) * 0.05;
+    r.mesh.rotation.y = Math.cos(t * 0.11 + r.hueOffset * 3) * 0.06;
+    // colors cycle: hue offset wanders over time + FFT lifts brightness per-arc-position
+    const pos = r.mesh.geometry.attributes.position;
+    const col = r.mesh.geometry.attributes.color;
+    const phase = (t * 0.06 + r.hueOffset) % 1;
+    const useSpec = specBuf && audioMode === 'tab';
+    for (let j = 0; j < pos.count; j++) {
+      const a = Math.atan2(pos.getY(j), pos.getX(j));
+      const u = (a / Math.PI + 1) * 0.5;            // 0..1 across the arc
+      let lift = 0;
+      if (useSpec) {
+        const binIdx = Math.min(specBuf.length - 1, Math.floor(u * 256));
+        lift = (specBuf[binIdx] / 255) * 0.35;
+      }
+      _rainbowTmp.setHSL((u + phase) % 1, 0.88, 0.52 + lift);
+      col.setXYZ(j, _rainbowTmp.r, _rainbowTmp.g, _rainbowTmp.b);
+    }
+    col.needsUpdate = true;
+    // opacity: rapid form-in, slow breath, gentle dissolve. While audio is loud, opacity holds longer.
+    if (r.born < 0.6) {
+      r.mat.opacity = Math.min(0.85, (r.born / 0.6) * 0.85);
+    } else {
+      const baseFade = Math.max(0, 0.85 - (r.born - 0.6) * 0.08);
+      r.mat.opacity = baseFade * (0.65 + Math.min(1, audioRMS) * 0.35);
+    }
+    if (r.born > 10) { scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mat.dispose(); rainbows.splice(i, 1); }
   }
 }
 
@@ -891,6 +917,7 @@ function updateMusic(dt, t) {
   }
   // sphere / overall energy — same channel as voice mode, but driven by total spectral energy
   const energyNorm = bandEnergy / MUSIC_BANDS;
+  audioRMS = Math.max(audioRMS, Math.min(1, energyNorm * 2));    // feed the rainbow's breath
   const sustained = energyNorm > 0.05;
   voiceSustain = sustained ? Math.min(1, voiceSustain + dt * 0.6) : Math.max(0, voiceSustain - dt * 0.4);
   voiceSphere.scale.setScalar(THREE.MathUtils.damp(voiceSphere.scale.x, 2 + voiceSustain * 14 + energyNorm * 12, 3, dt));
@@ -941,6 +968,7 @@ function updateVoice(dt, t) {
     }
   }
   if (!voiced) { voiceNote = -1; pitchHist.length = 0; }
+  if (voiced) audioRMS = Math.max(audioRMS, Math.min(1, rms * 6));   // rainbow breathes with the chant
   // sphere: gentle attack, long graceful decay
   voiceSustain = voiced ? Math.min(1, voiceSustain + dt * 0.5) : Math.max(0, voiceSustain - dt * 0.4);
   const target = 2 + voiceSustain * 14 + (voiced ? rms * 8 : 0);
@@ -1020,7 +1048,8 @@ function loop() {
   const t = clock.elapsedTime;
   if (audioMode === 'tab') updateMusic(dt, t); else updateVoice(dt, t);
   maybeAmbient(t);
-  updateMarks(dt); updateFigure(dt, t); updateStrings(dt); updateRainbows(dt);
+  updateMarks(dt); updateFigure(dt, t); updateStrings(dt); updateRainbows(dt, t);
+  audioRMS = Math.max(0, audioRMS - dt * 0.6);              // decay; voice/music paths re-feed it
 
   // background breath: slow swirl + a many-second wash toward clear light
   const wash = Math.sin(t * 0.09) * 0.5 + 0.5;              // 0..1, period ≈ 70s
