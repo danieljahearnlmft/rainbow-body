@@ -382,21 +382,27 @@ const clock = new THREE.Clock();
 const easeOut = x => 1 - Math.pow(1-x, 3);
 const _v = new THREE.Vector3();
 
-function spawnShape(channel, note, velocity, ambient = false) {
+function spawnShape(channel, note, velocity, ambient = false, quiet = false) {
   const vel = velocity / 127;                       // 0..1 — how hard the key was pressed
   const oct = Math.floor(note / 12);
   const octT = THREE.MathUtils.clamp((oct - 2) / 6, 0, 1);   // 0 low octave .. 1 high octave
   const to = noteToTarget(note, vel);
   const color = colorForNote(note).multiplyScalar(0.55 + octT * 0.9);   // octave -> brightness (low deeper, high brighter)
   const geo = GEOMS[note % GEOMS.length]();
+  // Music/tab mode (`quiet`) → empty thigle-style: faint mesh, bright wire.
+  // Voice / MIDI / keys → standard solid jewel.
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x000000, emissive: color, emissiveIntensity: 0.35 + vel*1.5,   // light intensity follows touch
-    metalness: 0.3, roughness: 0.3, transparent: true, opacity: 1, flatShading: true,
+    color: 0x000000, emissive: color,
+    emissiveIntensity: quiet ? 0.18 : (0.35 + vel*1.5),
+    metalness: 0.3, roughness: 0.3, transparent: true,
+    opacity: quiet ? 0.28 : 1,
+    flatShading: true,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.copy(CENTER); mesh.scale.setScalar(0.001); mesh.renderOrder = ORDER.NOTE;
   const wire = new THREE.LineSegments(new THREE.WireframeGeometry(geo),
-    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.2 + vel*0.35 }));
+    new THREE.LineBasicMaterial({ color, transparent: true,
+      opacity: quiet ? 0.75 : (0.2 + vel*0.35) }));
   wire.renderOrder = ORDER.NOTE;
   mesh.add(wire); scene.add(mesh);
   const mk = {
@@ -544,9 +550,13 @@ function spawnRainbow() {
   const R = 24, seg = 160;
   const geo = new THREE.TorusGeometry(R, 0.6, 10, seg, Math.PI);
   const colors = [], pos = geo.attributes.position;
+  // Each blast starts at a different hue and spans the full spectrum across the arc,
+  // so successive rainbows feel like different members of the same family rather
+  // than one stamped logo. Saturation/lightness held high for the jewel feel.
+  const hueOffset = Math.random();
   for (let i = 0; i < pos.count; i++) {
     const a = Math.atan2(pos.getY(i), pos.getX(i));
-    const c = new THREE.Color().setHSL((a/Math.PI)*0.82, 0.75, 0.62);
+    const c = new THREE.Color().setHSL(((a/Math.PI) + hueOffset) % 1, 0.85, 0.6);
     colors.push(c.r, c.g, c.b);
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
@@ -760,13 +770,13 @@ function updateMusic(dt, t) {
     if (norm > MUSIC_GATE) peaks.push({ band: b, idx: pIdx, norm });
   }
   peaks.sort((a, b) => b.norm - a.norm);
-  if (t - lastMusicSpawn > 0.08) {                      // global throttle: max ~12 spawn-cycles/sec
-    for (const p of peaks.slice(0, 3)) {                // top 3 simultaneous
-      if (frame - lastBandSpawnFrame[p.band] > 10) {    // per-band cooldown: ~165ms
+  if (t - lastMusicSpawn > 0.16) {                      // global throttle: ~6 spawn-cycles/sec — breathing room
+    for (const p of peaks.slice(0, 2)) {                // top 2 simultaneous, not 3 — keeps the field spacious
+      if (frame - lastBandSpawnFrame[p.band] > 18) {    // per-band cooldown: ~300ms
         const note = Math.round(69 + 12 * Math.log2((p.idx * binHz) / 440));
         if (note >= 24 && note <= 96) {
           const vel = Math.min(120, Math.round(p.norm * 130) + 20);
-          spawnShape(0, note, vel);
+          spawnShape(0, note, vel, false, true);         // quiet = thigle-style, wireframe-dominant
           lastBandSpawnFrame[p.band] = frame;
           lastInputClock = t;
         }
