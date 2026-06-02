@@ -395,6 +395,18 @@ const AUSPICIOUS = [
   'sheet_symbol_3_1','sheet_symbol_3_2','sheet_symbol_4_1','sheet_symbol_4_2',
 ].map(n => { const t = loader.load(`./assets/symbols/${n}.png`); t.colorSpace = THREE.SRGBColorSpace; return t; });
 
+// Five Bön warrior seed letters, one per element family. The order matches the
+// elements palette (earth · space · fire · wind · water) so note % 5 picks the
+// letter whose intrinsic color already matches the note's color anchor.
+const SEED_LETTERS = [
+  loader.load('./assets/seed_letters/symbol_05_yellow.png'),  // earth
+  loader.load('./assets/seed_letters/symbol_01_white.png'),   // space
+  loader.load('./assets/seed_letters/symbol_03_red.png'),     // fire
+  loader.load('./assets/seed_letters/symbol_02_green.png'),   // wind
+  loader.load('./assets/seed_letters/symbol_04_blue.png'),    // water
+];
+for (const t of SEED_LETTERS) t.colorSpace = THREE.SRGBColorSpace;
+
 function spawnAuspicious(note, velocity, quiet) {
   const vel = velocity / 127;
   const oct = Math.floor(note / 12);
@@ -417,11 +429,36 @@ function spawnAuspicious(note, velocity, quiet) {
   return mk;
 }
 
+function spawnSeedLetter(note, velocity, quiet) {
+  const vel = velocity / 127;
+  const oct = Math.floor(note / 12);
+  const octT = THREE.MathUtils.clamp((oct - 2) / 6, 0, 1);
+  const to = noteToTarget(note, vel);
+  const tex = SEED_LETTERS[((note % 5) + 5) % 5];      // color-matched: same index the elements palette uses
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    opacity: quiet ? 0.78 : 0.95,
+  }));
+  spr.position.copy(CENTER); spr.scale.setScalar(0.001); spr.renderOrder = ORDER.SEED; scene.add(spr);
+  const mk = {
+    mesh: spr, mat: spr.material, wire: null, kind: 'seed', dead: false, keepMap: true,
+    from: CENTER.clone(), to, target: (3.5 + vel*2) * (1.25 - octT*0.35),
+    born: 0, fly: 0, sustaining: true,
+    drift: new THREE.Vector3((Math.random()-0.5)*0.3, 0.45, (Math.random()-0.5)*0.3),
+    swirlDir: Math.random() < 0.5 ? 1 : -1,
+  };
+  marks.push(mk); lastInputClock = clock.elapsedTime;
+  return mk;
+}
+
 function spawnShape(channel, note, velocity, ambient = false, quiet = false) {
-  // ~7% of notes spawn an auspicious symbol instead of a polyhedron — rare enough
-  // to feel like a visitation, not a flood. Skip in ambient mode so the resting
-  // field stays geometric.
-  if (!ambient && Math.random() < 0.07) return spawnAuspicious(note, velocity, quiet);
+  // A small chance a note arrives as a sacred symbol instead of a polyhedron.
+  // Skip in ambient mode so the resting field stays geometric.
+  if (!ambient) {
+    const r = Math.random();
+    if (r < 0.05) return spawnSeedLetter(note, velocity, quiet);   // 5% colored seed letter
+    if (r < 0.10) return spawnAuspicious(note, velocity, quiet);   // 5% auspicious icon
+  }
   const vel = velocity / 127;                       // 0..1 — how hard the key was pressed
   const oct = Math.floor(note / 12);
   const octT = THREE.MathUtils.clamp((oct - 2) / 6, 0, 1);   // 0 low octave .. 1 high octave
