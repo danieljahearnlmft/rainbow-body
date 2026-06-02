@@ -1,0 +1,22 @@
+# Static single-file app — no build step. Connect this repo in Netlify and it
+# publishes the root directory on every push to the production branch.
+[build]
+  publish = "."
+  command = ""
+
+# Always serve a fresh index.html (the app is one file; updates should show
+# immediately), but let the heavy vendored assets cache hard.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/vendor/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"

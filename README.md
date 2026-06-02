@@ -1,60 +1,66 @@
-# Rainbow Body — MIDI Meditation Visualizer
+# Jalü — Caroline Rainbow
 
-Play a MIDI controller (Akai, OP-1, keyboard) and the notes draw an evolving
-rainbow-body visual: a luminous seated figure at the center, geometry emanating
-and spiralling outward, note-name colors, light shaped by how you press and which
-octave, occasional OM/AH/HUNG seed syllables and connecting strings, and a
-rainbow arch when you hold 3+ keys.
+A meditation visualizer. **Sing, hum, or chant** — or play a MIDI controller —
+and the sound draws an evolving rainbow-body: a luminous figure (Caroline, in
+four slowly breathing poses) at the center, geometry emanating and spiralling
+outward, quantized jewel-colors per note, light shaped by how hard and how high
+you play, OM/AH/HUNG seed syllables and connecting strings, a rainbow arch on a
+3+ note chord, and a soft sphere of light that swells while a tone is held.
 
-## Use it (hosted — any laptop, no install)
+*Jalü* (Tibetan, "rainbow body") is the realization this piece points at:
+form resolving into clear light.
 
-Open **https://danieljahearnlmft.github.io/rainbow-body/** in **Chrome**, click
-**Allow** when it asks for MIDI, plug in your controller (Akai / OP-1) by USB,
-and play. Works alongside Ableton or Logic — they make the sound, this draws the
-picture, both reading the same controller at once.
+## Use it on a phone (no install, no keyboard)
 
-## Run locally instead
+Open the hosted link, tap **Begin with your voice**, allow the microphone, and
+sing or chant. Your voice's pitch becomes color and position; its loudness
+becomes brightness and size. Stop, and the field settles. (On iPhone use Safari
+or Chrome — Web MIDI isn't available on iOS, so voice is the way in.)
 
-## Quick start
+## Use it with MIDI (laptop)
 
-1. Plug the **Akai** or **OP-1** into the Mac by USB.
-2. Double-click **`start.command`**. Chrome opens to the visualizer.
-3. The first time, Chrome asks to allow MIDI — click **Allow**.
-4. Play. (No device handy? Test with keyboard keys `A`–`L`.)
+Open in **Chrome**, click **Allow** for MIDI, plug in a controller (Akai / OP-1 /
+any USB-MIDI keyboard) and play. Works alongside Ableton or Logic — they make the
+sound, this draws the picture, both reading the same controller. Voice and MIDI
+coexist; if no controller is present, voice is the default input.
 
-To stop: close the little terminal window that opened.
+No device handy? Play with keyboard keys `A`–`L`. With no input at all, the field
+gently plays itself.
 
-## What the controls do (top-left panel)
+## Controls (bottom panel)
 
-- **MIDI input** — usually leave on "All inputs"; it listens to every device.
-- **Persist** — how long each shape lives before fading. Low = ephemeral,
-  high = the canvas fills up and accumulates.
-- **Drift** — how fast shapes float through space as they evolve.
-- **Trails** — brightness of the glowing line that connects notes in play order
-  (the "drawing" gesture). 0 turns it off.
-- **Clear canvas** — wipe everything (also the `C` key).
+- **Input** — MIDI device ("All inputs" listens to everything).
+- **Color** — Note colors / Rainbow / Vajra / Elements / Aurora (all quantized so
+  notes read as separate jewels).
+- **Glow** — bloom strength.
+- **Persist** — how long each shape lives before fading.
+- **Drift / Swirl** — how shapes float and spiral outward.
+- **Strings** — brightness of the lines connecting notes.
+- **Syllables** — how often seed syllables appear.
+- **● Rec** — record canvas + voice to a downloadable clip.
+- **Clear** — wipe (also the `C` key).
 
-Keys: `H` hide panel · `F` fullscreen · `C` clear · drag to orbit · scroll to zoom.
+Keys: `H` pin panel · `F` fullscreen · `C` clear · drag to orbit · scroll/pinch
+to zoom. On a phone, one finger orbits and pinch zooms; the ◇ handle brings the
+panel back.
 
-## How notes map to the image
+## How sound maps to the image
 
-- **Pitch (which note)** → color (hue around the rainbow) + where it appears in
-  space (a "chromatic clock" ring; higher octaves sit higher up).
-- **Velocity (how hard)** → size and brightness.
-- **Time** → shapes spin, drift, and slowly fade, so a performance evolves.
+- **Pitch** → color (snapped to the palette's anchor colors) + position (a
+  chromatic-clock ring; higher octaves sit higher).
+- **Loudness / velocity** → size and brightness.
+- **Sustain** → a growing sphere of light from the figure.
+- **Time** → shapes spin, drift, swirl, and slowly fade, so a session evolves.
 
-## Devices
+## Run locally
 
-- **Akai / OP-1 / any USB-MIDI keyboard** — plug in and play. No other software
-  needed. Both are class-compliant, so the browser reads them directly.
-- **Ableton Live 11 (optional)** — only needed if you want Live to make the
-  *sound* while this draws the *picture*. Route Live's MIDI out to the macOS
-  **IAC Driver** bus (Audio MIDI Setup → IAC Driver → "Device is online"), enable
-  that port in Live's MIDI preferences, and select it here. For visuals alone,
-  skip this entirely.
+1. Double-click **`start.command`** (serves over `http://localhost` and opens
+   Chrome — Web MIDI and the mic both require a secure context, so opening the
+   file directly won't work).
+2. Allow MIDI and/or the microphone when asked.
 
-## Notes
+## Deploy
 
-- Use **Google Chrome** (Web MIDI isn't in Safari).
-- Must be opened via `start.command` / `http://localhost`, not by opening the
-  file directly — Web MIDI requires a secure context.
+Static single-file app — no build step. `netlify.toml` is included; connect the
+repo in Netlify and it publishes the root directory on every push to `main`.
+Also works as-is on GitHub Pages.
