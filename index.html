@@ -66,16 +66,20 @@
   #enter button.ghost { background: transparent; color: #8b93a6; }
   #enter button:hover { border-color: rgba(255,255,255,0.4); }
   #enter .enote { color: #c98; font-size: 12.5px; margin-top: 18px; min-height: 16px; }
-  /* full-screen rainbow dissolve — fires every 3:33 as a clear-light wash + reset */
+  /* heart-center rainbow dissolve — fires every 1:11 as a clear-light wash + reset.
+     Origin is roughly Caroline's chest on screen (50% / 58%). Starts as a tiny
+     luminous point and expands radially through the rainbow gamut. */
   #rainbowFlash {
-    position: fixed; inset: 0; z-index: 8; pointer-events: none;
-    opacity: 0; mix-blend-mode: screen; filter: blur(60px);
+    position: fixed; left: 50%; top: 58%; z-index: 8; pointer-events: none;
+    width: 200px; height: 200px; margin-left: -100px; margin-top: -100px;
+    border-radius: 50%; opacity: 0;
+    mix-blend-mode: screen; filter: blur(40px);
     background: conic-gradient(from 0deg at 50% 50%,
       #ff2d2d, #ff8a00, #ffe14d, #37d35a, #2f6bff, #8b5cf6, #ff2d2d);
-    transform: scale(1.05);
-    transition: opacity 1.4s ease, transform 4s ease, filter 4s ease;
+    transform: scale(0.05);
+    transition: opacity 1.4s ease, transform 3.6s cubic-bezier(.22,.61,.36,1), filter 3.6s ease;
   }
-  #rainbowFlash.on { opacity: 0.78; transform: scale(1.45); filter: blur(120px); }
+  #rainbowFlash.on { opacity: 0.82; transform: scale(22); filter: blur(180px); }
   @media (max-width: 760px) { #panelToggle { display: block; } }
   /* phones: keep the panel thumb-reachable; one row that scrolls; hide the desktop hint */
   @media (max-width: 760px) {
@@ -382,7 +386,42 @@ const clock = new THREE.Clock();
 const easeOut = x => 1 - Math.pow(1-x, 3);
 const _v = new THREE.Vector3();
 
+// The Eight Auspicious Symbols of Tibetan iconography (parasol, fish, vase,
+// lotus, conch, endless knot, victory banner, dharma wheel) — loaded once,
+// occasionally substituted for a polyhedron so the field carries a little of
+// the thangka. Shared textures: disposeMark respects `keepMap`.
+const AUSPICIOUS = [
+  'sheet_symbol_1_1','sheet_symbol_1_2','sheet_symbol_2_1','sheet_symbol_2_2',
+  'sheet_symbol_3_1','sheet_symbol_3_2','sheet_symbol_4_1','sheet_symbol_4_2',
+].map(n => { const t = loader.load(`./assets/symbols/${n}.png`); t.colorSpace = THREE.SRGBColorSpace; return t; });
+
+function spawnAuspicious(note, velocity, quiet) {
+  const vel = velocity / 127;
+  const oct = Math.floor(note / 12);
+  const octT = THREE.MathUtils.clamp((oct - 2) / 6, 0, 1);
+  const to = noteToTarget(note, vel);
+  const tex = AUSPICIOUS[Math.floor(Math.random() * AUSPICIOUS.length)];
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    opacity: quiet ? 0.7 : 0.92,
+  }));
+  spr.position.copy(CENTER); spr.scale.setScalar(0.001); spr.renderOrder = ORDER.SEED; scene.add(spr);
+  const mk = {
+    mesh: spr, mat: spr.material, wire: null, kind: 'seed', dead: false, keepMap: true,
+    from: CENTER.clone(), to, target: (3.2 + vel*1.8) * (1.3 - octT*0.4),
+    born: 0, fly: 0, sustaining: true,
+    drift: new THREE.Vector3((Math.random()-0.5)*0.3, 0.4, (Math.random()-0.5)*0.3),
+    swirlDir: Math.random() < 0.5 ? 1 : -1,
+  };
+  marks.push(mk); lastInputClock = clock.elapsedTime;
+  return mk;
+}
+
 function spawnShape(channel, note, velocity, ambient = false, quiet = false) {
+  // ~7% of notes spawn an auspicious symbol instead of a polyhedron — rare enough
+  // to feel like a visitation, not a flood. Skip in ambient mode so the resting
+  // field stays geometric.
+  if (!ambient && Math.random() < 0.07) return spawnAuspicious(note, velocity, quiet);
   const vel = velocity / 127;                       // 0..1 — how hard the key was pressed
   const oct = Math.floor(note / 12);
   const octT = THREE.MathUtils.clamp((oct - 2) / 6, 0, 1);   // 0 low octave .. 1 high octave
@@ -393,16 +432,16 @@ function spawnShape(channel, note, velocity, ambient = false, quiet = false) {
   // Voice / MIDI / keys → standard solid jewel.
   const mat = new THREE.MeshStandardMaterial({
     color: 0x000000, emissive: color,
-    emissiveIntensity: quiet ? 0.18 : (0.35 + vel*1.5),
+    emissiveIntensity: quiet ? 0.12 : (0.35 + vel*1.5),
     metalness: 0.3, roughness: 0.3, transparent: true,
-    opacity: quiet ? 0.28 : 1,
+    opacity: quiet ? 0.15 : 1,                           // music: nearly empty — wire defines the form
     flatShading: true,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.copy(CENTER); mesh.scale.setScalar(0.001); mesh.renderOrder = ORDER.NOTE;
   const wire = new THREE.LineSegments(new THREE.WireframeGeometry(geo),
     new THREE.LineBasicMaterial({ color, transparent: true,
-      opacity: quiet ? 0.75 : (0.2 + vel*0.35) }));
+      opacity: quiet ? 0.95 : (0.2 + vel*0.35) }));
   wire.renderOrder = ORDER.NOTE;
   mesh.add(wire); scene.add(mesh);
   const mk = {
@@ -581,15 +620,16 @@ function clearCanvas() {
 }
 document.getElementById('clear').onclick = clearCanvas;
 
-// every 3:33 — rainbow dissolve washes the whole image and resets the scene
+// every 1:11 — rainbow dissolve radiates outward from her heart and resets the scene.
+// A Steal-Your-Face wink appears each cycle a moment after the wash settles.
 const rainbowFlashEl = document.getElementById('rainbowFlash');
 function rainbowDissolveReset() {
   rainbowFlashEl.classList.add('on');
   setTimeout(() => clearCanvas(), 1400);                 // reset at peak
   setTimeout(() => rainbowFlashEl.classList.remove('on'), 2200);
-  if (Math.random() < 0.35) setTimeout(spawnSYF, 4500);  // ~once per ~10 min — a wink for Caroline
+  setTimeout(spawnSYF, 4500);                            // one wink for Caroline per cycle
 }
-setInterval(rainbowDissolveReset, 213000);               // 3 min 33 sec
+setInterval(rainbowDissolveReset, 71000);                // 1 min 11 sec
 
 // ======================================================================
 // MIDI
