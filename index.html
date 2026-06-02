@@ -646,6 +646,11 @@ voiceSphere.position.copy(CENTER); voiceSphere.renderOrder = ORDER.SPHERE; voice
 let voiceSustain = 0;
 
 async function startAudio() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error(window.isSecureContext === false
+      ? 'Mic needs HTTPS — open this page over https://'
+      : 'Mic isn’t supported in this browser — try Chrome or Safari');
+  }
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
   micStream = await navigator.mediaDevices.getUserMedia({
@@ -664,6 +669,11 @@ async function startAudio() {
 // the moment it arrives. The audio stream flows into the SAME analyser as the
 // mic, so spawnShape / voiceSphere code is unchanged.
 async function startTabAudio() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    throw new Error(window.isSecureContext === false
+      ? 'Tab audio needs HTTPS — open this page over https://'
+      : 'Tab audio isn’t supported in this browser — try Chrome');
+  }
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
   const stream = await navigator.mediaDevices.getDisplayMedia({
