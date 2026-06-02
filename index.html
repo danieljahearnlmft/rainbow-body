@@ -281,24 +281,44 @@ aura.scale.setScalar(6.5); aura.position.copy(CENTER); aura.renderOrder = ORDER.
 //   seated "home" pose. The figure is the SLOWEST-moving element in the piece:
 //   a constant faint breath and sway under a very slow pose cycle.
 // ======================================================================
-// White-with-black-outline art, normalized to a common 512×768 canvas: the figure
-// is placed identically in every frame, so one uniform transform keeps the feet
-// aligned automatically — a taller pose just fills more of its frame.
+// Transparent-background silhouettes, baseline-aligned on the feet and sharing
+// one units-per-pixel scale, so a taller pose simply rises higher and it reads as
+// one body changing, not images swapping.
 const POSES = [
-  { file: 'caroline_01_seated_meditation_white_black_outline.png', weight: 0.46 },  // home / still point
-  { file: 'caroline_02_standing_arms_raised_white_black_outline.png', weight: 0.18 },
-  { file: 'caroline_03_forward_fold_white_black_outline.png', weight: 0.18 },
-  { file: 'caroline_04_seated_grounded_white_black_outline.png', weight: 0.18 },
+  { file: 'caroline_01_seated_meditation.png', w: 500, h: 602, weight: 0.46 },  // home / still point
+  { file: 'caroline_02_standing_arms_raised.png', w: 437, h: 768, weight: 0.18 },
+  { file: 'caroline_03_forward_fold.png', w: 490, h: 670, weight: 0.18 },
+  { file: 'caroline_04_seated_grounded.png', w: 504, h: 711, weight: 0.18 },
 ];
-const FIG_H = 26, FIG_W = FIG_H * 512 / 768;   // shared size for the 512×768 frame
-const FIG_Y = 4;                                // vertical placement of the (centered) frame
-const loader = new THREE.TextureLoader();
+const FIG_K = 0.0266;          // world units per source pixel (seated ≈ 16u tall)
+const FOOT_Y = -5.5;           // shared baseline so feet never jump between poses
+const FIG_WHITE = '#eef3fb';   // soft, washed-out white the figure is recolored to
+// The source art is teal; a sprite tint can only multiply, so recolor at load:
+// keep each silhouette's alpha (the figure shape + soft edge) but swap the color
+// to white via a source-in composite. Returns a CanvasTexture.
+function whiteSilhouetteTexture(src) {
+  const tex = new THREE.Texture(); tex.colorSpace = THREE.SRGBColorSpace;
+  const img = new Image();
+  img.onload = () => {
+    const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    ctx.globalCompositeOperation = 'source-in';      // recolor opaque pixels, preserve alpha
+    ctx.fillStyle = FIG_WHITE; ctx.fillRect(0, 0, cv.width, cv.height);
+    tex.image = cv; tex.needsUpdate = true;
+  };
+  img.src = src;
+  return tex;
+}
 const FIG = { sprites: [], base: [], cur: 0, next: -1, fade: 1, fadeDur: 4, hold: 7, timer: 0 };
 for (let i = 0; i < POSES.length; i++) {
-  const tex = loader.load('./assets/' + POSES[i].file); tex.colorSpace = THREE.SRGBColorSpace;
+  const p = POSES[i];
+  const tex = whiteSilhouetteTexture('./assets/' + p.file);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: i === 0 ? 1 : 0 }));
-  sp.scale.set(FIG_W, FIG_H, 1); sp.position.set(0, FIG_Y, 0); sp.renderOrder = ORDER.FIGURE;
-  scene.add(sp); FIG.sprites.push(sp); FIG.base.push({ x: FIG_W, y: FIG_H });
+  sp.center.set(0.5, 0);                                  // anchor at the feet
+  const bw = p.w * FIG_K, bh = p.h * FIG_K;
+  sp.scale.set(bw, bh, 1); sp.position.set(0, FOOT_Y, 0); sp.renderOrder = ORDER.FIGURE;
+  scene.add(sp); FIG.sprites.push(sp); FIG.base.push({ x: bw, y: bh });
 }
 function figPickNext() {
   // weighted random, never repeat current, bias toward the seated home pose
