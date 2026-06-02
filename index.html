@@ -562,9 +562,10 @@ function disposeMark(m) {
   if (m.wire) { m.wire.geometry.dispose(); m.wire.material.dispose(); }
 }
 
-// Steal-Your-Face — Caroline was a deadhead. Appears once in a while, rare and
-// unmistakable. Shares the seed lifecycle (additive blend, drift, fade out).
-const syfTex = loader.load('./assets/syf.png');
+// Dharma stealie — Caroline was a deadhead. The SYF as our brand mark. Appears
+// once in a while, rare and unmistakable. Shares the seed lifecycle (additive
+// blend, drift, fade out).
+const syfTex = loader.load('./assets/marks/dharma-stealie.png');
 syfTex.colorSpace = THREE.SRGBColorSpace;
 function spawnSYF() {
   const az = Math.random() * Math.PI * 2;

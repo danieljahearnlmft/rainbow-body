@@ -1,6 +1,6 @@
 /* Caroline Rainbow — service worker
    Bump CACHE when you ship changes so clients pick them up. */
-const CACHE = 'caroline-rainbow-v2';
+const CACHE = 'caroline-rainbow-v3';
 
 // Core shell precached on install. The five vendor files below are the ones
 // directly imported by index.html. Three.js addons import further helper
@@ -30,7 +30,7 @@ const PRECACHE = [
   '/vendor/fonts/tibetan.woff2',
   '/share.png',
   '/assets/caroline_01_seated_meditation_white_fill_true_transparent.png',
-  '/assets/syf.png',
+  '/assets/marks/dharma-stealie.png',
   '/assets/seed_letters/symbol_01_white.png',
   '/assets/seed_letters/symbol_02_green.png',
   '/assets/seed_letters/symbol_03_red.png',
