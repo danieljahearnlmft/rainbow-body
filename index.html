@@ -3,7 +3,20 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<title>Jalü — Rainbow Body</title>
+<title>Caroline Rainbow — Jalü</title>
+<meta name="description" content="Sing, hum, or chant — and the light will answer. Your voice paints the rainbow body." />
+<link rel="canonical" href="https://carolinerainbow.com/" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://carolinerainbow.com/" />
+<meta property="og:title" content="Caroline Rainbow" />
+<meta property="og:description" content="Sing, hum, or chant — and the light will answer. Your voice paints the rainbow body." />
+<meta property="og:image" content="https://carolinerainbow.com/share.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Caroline Rainbow" />
+<meta name="twitter:description" content="Sing, hum, or chant — and the light will answer." />
+<meta name="twitter:image" content="https://carolinerainbow.com/share.png" />
 <style>
   @font-face { font-family: 'Noto Serif Tibetan'; src: url('./vendor/fonts/tibetan.woff2') format('woff2'); font-display: swap; }
   html, body { margin: 0; height: 100%; background: #04050a; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
@@ -53,6 +66,16 @@
   #enter button.ghost { background: transparent; color: #8b93a6; }
   #enter button:hover { border-color: rgba(255,255,255,0.4); }
   #enter .enote { color: #c98; font-size: 12.5px; margin-top: 18px; min-height: 16px; }
+  /* full-screen rainbow dissolve — fires every 3:33 as a clear-light wash + reset */
+  #rainbowFlash {
+    position: fixed; inset: 0; z-index: 8; pointer-events: none;
+    opacity: 0; mix-blend-mode: screen; filter: blur(60px);
+    background: conic-gradient(from 0deg at 50% 50%,
+      #ff2d2d, #ff8a00, #ffe14d, #37d35a, #2f6bff, #8b5cf6, #ff2d2d);
+    transform: scale(1.05);
+    transition: opacity 1.4s ease, transform 4s ease, filter 4s ease;
+  }
+  #rainbowFlash.on { opacity: 0.78; transform: scale(1.45); filter: blur(120px); }
   @media (max-width: 760px) { #panelToggle { display: block; } }
   /* phones: keep the panel thumb-reachable; one row that scrolls; hide the desktop hint */
   @media (max-width: 760px) {
@@ -89,6 +112,7 @@
 </div>
 <div id="tag">drag to orbit · scroll to zoom · <b>H</b> pin menu · <b>F</b> fullscreen · <b>C</b> clear · hold 3+ keys → rainbow</div>
 <div id="recdot" class="hidden">● REC</div>
+<div id="rainbowFlash"></div>
 <button id="panelToggle" aria-label="show controls">◇</button>
 
 <!-- One-tap entry: unlocks audio + asks for the mic so a phone with no keyboard can play by voice -->
@@ -291,7 +315,7 @@ aura.scale.setScalar(6.5); aura.position.copy(CENTER); aura.renderOrder = ORDER.
 const POSES = [
   { file: 'caroline_01_seated_meditation_white_fill_true_transparent.png', w: 438, h: 412, weight: 1 },  // home / still point
 ];
-const FIG_K = 0.0388;          // world units per source pixel (seated ≈ 16u tall)
+const FIG_K = 0.0322;          // world units per source pixel (seated ≈ 16u tall)
 const FOOT_Y = -5.5;           // shared baseline so feet never jump between poses
 const FIG_TINT = 0xd2d8e6;     // soft off-white — luminous body, below the bloom threshold
 const loader = new THREE.TextureLoader();
@@ -519,6 +543,15 @@ function clearCanvas() {
   for (const r of rainbows) { scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mat.dispose(); } rainbows.length = 0;
 }
 document.getElementById('clear').onclick = clearCanvas;
+
+// every 3:33 — rainbow dissolve washes the whole image and resets the scene
+const rainbowFlashEl = document.getElementById('rainbowFlash');
+function rainbowDissolveReset() {
+  rainbowFlashEl.classList.add('on');
+  setTimeout(() => clearCanvas(), 1400);                 // reset at peak
+  setTimeout(() => rainbowFlashEl.classList.remove('on'), 2200);
+}
+setInterval(rainbowDissolveReset, 213000);               // 3 min 33 sec
 
 // ======================================================================
 // MIDI
