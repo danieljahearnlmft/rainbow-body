@@ -286,11 +286,10 @@ aura.scale.setScalar(6.5); aura.position.copy(CENTER); aura.renderOrder = ORDER.
 // one units-per-pixel scale, so a taller pose simply rises higher and it reads as
 // one body changing, not images swapping. A soft off-white tint keeps her a
 // luminous body rather than a hot blob under bloom.
+// Seated meditation only — the still point. (The other poses are retained in
+// assets/ and the crossfade machinery still works; add them back here to re-enable.)
 const POSES = [
-  { file: 'caroline_01_seated_meditation_white_fill_true_transparent.png', w: 438, h: 412, weight: 0.46 },  // home / still point
-  { file: 'caroline_02_standing_arms_raised_white_fill_true_transparent.png', w: 169, h: 732, weight: 0.18 },
-  { file: 'caroline_03_forward_fold_white_fill_true_transparent.png', w: 340, h: 464, weight: 0.18 },
-  { file: 'caroline_04_seated_grounded_white_fill_true_transparent.png', w: 311, h: 435, weight: 0.18 },
+  { file: 'caroline_01_seated_meditation_white_fill_true_transparent.png', w: 438, h: 412, weight: 1 },  // home / still point
 ];
 const FIG_K = 0.0388;          // world units per source pixel (seated ≈ 16u tall)
 const FOOT_Y = -5.5;           // shared baseline so feet never jump between poses
@@ -316,7 +315,7 @@ function figPickNext() {
 function updateFigure(dt, t) {
   FIG.timer += dt;
   if (FIG.next < 0) {                                     // holding a pose
-    if (FIG.timer > FIG.hold) { FIG.next = figPickNext(); FIG.fade = 0; FIG.fadeDur = 3.5 + Math.random() * 2.5; }
+    if (FIG.sprites.length > 1 && FIG.timer > FIG.hold) { FIG.next = figPickNext(); FIG.fade = 0; FIG.fadeDur = 3.5 + Math.random() * 2.5; }
   } else {                                                // crossfading into the next pose
     FIG.fade += dt / FIG.fadeDur;
     if (FIG.fade >= 1) { FIG.cur = FIG.next; FIG.next = -1; FIG.timer = 0; FIG.hold = 6 + Math.random() * 6; }
