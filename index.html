@@ -121,6 +121,7 @@
     <div class="etitle">Caroline Rainbow</div>
     <div class="esub">Sing, hum, or chant — and the light will answer.<br>Your voice paints the rainbow body.</div>
     <button id="beginVoice">Begin with your voice</button>
+    <button id="beginTab" class="ghost">Share a tab playing music</button>
     <button id="beginWatch" class="ghost">Just watch</button>
     <div class="enote" id="enterNote"></div>
   </div>
@@ -655,6 +656,30 @@ async function startAudio() {
   src.connect(analyser);   // analyser only — never routed to output, so no feedback
   dot.classList.add('live'); statusEl.textContent = midiDeviceCount ? statusEl.textContent + ' + voice' : 'voice';
 }
+
+// Capture audio from another browser tab — for playing along to Spotify Web,
+// YouTube, etc. getDisplayMedia requires video, so we discard the video track
+// the moment it arrives. The audio stream flows into the SAME analyser as the
+// mic, so spawnShape / voiceSphere code is unchanged.
+async function startTabAudio() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    video: true,
+  });
+  if (!stream.getAudioTracks().length) {
+    stream.getTracks().forEach(t => t.stop());
+    throw new Error('No audio shared — re-pick the tab and check "Share tab audio"');
+  }
+  stream.getVideoTracks().forEach(t => t.stop());     // we only want the audio
+  micStream = stream;                                  // reuse so the rec pipeline grabs it too
+  const src = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser(); analyser.fftSize = 2048;
+  voiceBuf = new Float32Array(analyser.fftSize);
+  src.connect(analyser);
+  dot.classList.add('live'); statusEl.textContent = midiDeviceCount ? statusEl.textContent + ' + tab audio' : 'tab audio';
+}
 function median(a) { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; }
 function detectPitch(buf, sr) {
   const n = buf.length; let rms = 0;
@@ -705,15 +730,19 @@ function updateVoice(dt, t) {
 // ENTRY OVERLAY — one tap unlocks AudioContext + requests the mic
 // ======================================================================
 const enter = document.getElementById('enter'), enterNote = document.getElementById('enterNote');
-async function begin(withVoice) {
-  if (withVoice) {
+async function begin(mode) {
+  if (mode === 'voice') {
     try { await startAudio(); }
     catch (e) { enterNote.textContent = 'Mic unavailable — you can still play by keyboard or MIDI.'; }
+  } else if (mode === 'tab') {
+    try { await startTabAudio(); }
+    catch (e) { enterNote.textContent = (e.message || 'Tab share cancelled') + '.'; return; }
   }
   enter.classList.add('gone'); setTimeout(() => { enter.style.display = 'none'; }, 900);
 }
-document.getElementById('beginVoice').onclick = () => begin(true);
-document.getElementById('beginWatch').onclick = () => begin(false);
+document.getElementById('beginVoice').onclick = () => begin('voice');
+document.getElementById('beginTab').onclick = () => begin('tab');
+document.getElementById('beginWatch').onclick = () => begin('watch');
 
 // ======================================================================
 // RECORDING — canvas + voice into a downloadable clip
