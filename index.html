@@ -695,11 +695,16 @@ async function startAudio() {
 // YouTube, etc. getDisplayMedia requires video, so we discard the video track
 // the moment it arrives. The audio stream flows into the SAME analyser as the
 // mic, so spawnShape / voiceSphere code is unchanged.
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 async function startTabAudio() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-    throw new Error(window.isSecureContext === false
-      ? 'Tab audio needs HTTPS — open this page over https://'
-      : 'Tab audio isn’t supported in this browser — try Chrome');
+    throw new Error(isIOS
+      ? 'Tab audio isn’t available on iPhone / iPad — use voice instead'
+      : window.isSecureContext === false
+        ? 'Tab audio needs HTTPS — open this page over https://'
+        : 'Tab audio isn’t supported in this browser — try desktop Chrome');
   }
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') await audioCtx.resume();
@@ -846,6 +851,11 @@ async function begin(mode) {
 document.getElementById('beginVoice').onclick = () => begin('voice');
 document.getElementById('beginTab').onclick = () => begin('tab');
 document.getElementById('beginWatch').onclick = () => begin('watch');
+// Hide the tab-capture button on browsers that can't do it (iOS, older browsers).
+// Avoids a misleading "try Chrome" error when Chrome iOS would behave the same.
+if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+  document.getElementById('beginTab').style.display = 'none';
+}
 
 // ======================================================================
 // RECORDING — canvas + voice into a downloadable clip
